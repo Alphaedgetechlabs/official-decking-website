@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { CONTRACTORS } from "@/data/formData";
+import { tradeLabel } from "@/config/brandDomain";
 import { Star, CheckCircle, Shield, User, Zap } from "lucide-react";
 
 interface ResultsStepProps {
@@ -51,7 +52,7 @@ const ResultsStep = ({ state }: ResultsStepProps) => {
         {/* Header */}
         <section className="mb-8 sm:mb-10">
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-foreground leading-tight mb-4">
-            We're finding the best decking contractors near you...
+            We're finding the best {tradeLabel} contractors near you...
           </h1>
           <p className="text-muted-foreground text-base sm:text-lg mb-8">
             Local verified pros are checking your job details right now.
@@ -107,7 +108,7 @@ const ResultsStep = ({ state }: ResultsStepProps) => {
             <div>
               <h4 className="text-foreground font-bold text-base sm:text-lg leading-snug">Your quotes are being prepared now!</h4>
               <p className="text-muted-foreground text-sm mt-1 leading-relaxed">
-                We've matched you with 3 top-rated decking contractors in your area. You'll receive your quotes shortly.
+                We've matched you with 3 top-rated {tradeLabel} contractors in your area. You'll receive your quotes shortly.
               </p>
             </div>
           </section>

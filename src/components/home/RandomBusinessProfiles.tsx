@@ -1,5 +1,10 @@
 import type { BusinessProfile } from '../../services/businessService';
+import {
+  splitAcceptedAndPendingSlots,
+  TARGET_MATCH_SLOTS,
+} from '../../utils/businessMatchStatus';
 import { BusinessProfileCard } from './BusinessProfileCard';
+import { TradieRowSkeleton } from './TradieRowSkeleton';
 
 interface RandomBusinessProfilesProps {
   businesses: BusinessProfile[];
@@ -16,9 +21,19 @@ export function RandomBusinessProfiles({
   error,
   onMessage,
   variant = 'row',
-  skeletonCount = 3,
+  skeletonCount = TARGET_MATCH_SLOTS,
 }: RandomBusinessProfilesProps) {
   if (loading) {
+    if (variant === 'row') {
+      return (
+        <div>
+          {Array.from({ length: skeletonCount }).map((_, i) => (
+            <TradieRowSkeleton key={`loading-slot-${i}`} />
+          ))}
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-3 px-4 py-4">
         {Array.from({ length: skeletonCount }).map((_, i) => (
@@ -45,15 +60,25 @@ export function RandomBusinessProfiles({
     );
   }
 
+  const { accepted, skeletonCount: pendingSlots } =
+    splitAcceptedAndPendingSlots(businesses, skeletonCount);
+
   if (variant === 'card') {
     return (
       <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-        {businesses.map((business) => (
+        {accepted.map((business) => (
           <BusinessProfileCard
             key={business.id}
             business={business}
             onMessage={onMessage}
             variant="card"
+          />
+        ))}
+        {Array.from({ length: pendingSlots }).map((_, i) => (
+          <div
+            key={`pending-card-${i}`}
+            className="h-28 animate-pulse rounded-xl bg-gray-100"
+            aria-hidden="true"
           />
         ))}
       </div>
@@ -62,13 +87,16 @@ export function RandomBusinessProfiles({
 
   return (
     <div>
-      {businesses.map((business) => (
+      {accepted.map((business) => (
         <BusinessProfileCard
           key={business.id}
           business={business}
           onMessage={onMessage}
           variant="row"
         />
+      ))}
+      {Array.from({ length: pendingSlots }).map((_, i) => (
+        <TradieRowSkeleton key={`pending-slot-${i}`} />
       ))}
     </div>
   );

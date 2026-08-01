@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { CheckCircle2, Info, MapPin, Zap } from 'lucide-react';
+import { tradeLabel } from '../../config/brandDomain';
 import { useWizard } from '../../context/WizardContext';
 import type { StoredLocation } from '../../types/location';
 import {
@@ -60,7 +61,7 @@ export function Step1Location() {
         <div className="mt-5 flex items-start gap-2.5 rounded-xl border border-border px-4 py-3.5">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" strokeWidth={2} />
           <p className="text-xs leading-relaxed text-body">
-            Next, we&apos;ll ask about your fence type and dimensions.
+            Next, we&apos;ll ask about your {tradeLabel} type and dimensions.
           </p>
         </div>
 
@@ -93,7 +94,7 @@ export function Step1Location() {
         <span>
           We&apos;ll instantly match you with{' '}
           <strong className="font-semibold text-brand">
-            verified local decking pros
+            verified local {tradeLabel} pros
           </strong>{' '}
           who are available right now.
         </span>
@@ -126,7 +127,7 @@ export function Step1Location() {
             <strong className="font-semibold text-heading">
               1000&apos;s of Aussie homeowners
             </strong>{' '}
-            looking for fast, reliable decking quotes.
+            looking for fast, reliable {tradeLabel} quotes.
           </p>
         </div>
       </div>

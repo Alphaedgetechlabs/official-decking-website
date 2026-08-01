@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AlertCircle, Clock, ArrowLeft, ArrowRight, User, Mail, Phone, Shield } from "lucide-react";
-import { isValidPhoneInput, getPhoneInputError } from "@/utils/phone";
+import { tradeLabel } from "@/config/brandDomain";
+import { getPhoneInputError } from "@/utils/phone";
+import { sanitizeQueryValue } from "@/utils/sanitizeQueryValue";
 
 interface ContactStepProps {
   onNext: (data: { name: string; email: string; phone: string }) => void | Promise<void>;
   onBack: () => void;
-  submitting?: boolean;
   error?: string | null;
   onClearError?: () => void;
 }
@@ -13,12 +15,51 @@ interface ContactStepProps {
 const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 const validateName = (name: string) => !/\d/.test(name.trim());
 
-const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }: ContactStepProps) => {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+const ContactStep = ({ onNext, onBack, error, onClearError }: ContactStepProps) => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [name, setName] = useState(() =>
+    sanitizeQueryValue(searchParams.get("name") ?? ""),
+  );
+  const [email, setEmail] = useState(() =>
+    sanitizeQueryValue(searchParams.get("email") ?? ""),
+  );
+  const [phone, setPhone] = useState(() =>
+    sanitizeQueryValue(searchParams.get("phone") ?? ""),
+  );
   const [touched, setTouched] = useState({ name: false, email: false, phone: false });
   const [submitted, setSubmitted] = useState(false);
+
+  // URL → fields (deep link / refresh / shared link)
+  useEffect(() => {
+    const nameParam = sanitizeQueryValue(searchParams.get("name") ?? "");
+    const emailParam = sanitizeQueryValue(searchParams.get("email") ?? "");
+    const phoneParam = sanitizeQueryValue(searchParams.get("phone") ?? "");
+    setName((prev) => (prev === nameParam ? prev : nameParam));
+    setEmail((prev) => (prev === emailParam ? prev : emailParam));
+    setPhone((prev) => (prev === phoneParam ? prev : phoneParam));
+  }, [searchParams]);
+
+  // fields → URL (so a shared link auto-fills step 4 without submitting)
+  useEffect(() => {
+    const nameParam = sanitizeQueryValue(searchParams.get("name") ?? "");
+    const emailParam = sanitizeQueryValue(searchParams.get("email") ?? "");
+    const phoneParam = sanitizeQueryValue(searchParams.get("phone") ?? "");
+    if (name === nameParam && email === emailParam && phone === phoneParam) return;
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (name) next.set("name", name);
+        else next.delete("name");
+        if (email) next.set("email", email);
+        else next.delete("email");
+        if (phone) next.set("phone", phone);
+        else next.delete("phone");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [name, email, phone, searchParams, setSearchParams]);
 
   const errors = {
     name: !name.trim() ? "Please enter your name" : !validateName(name) ? "Please enter your correct name" : "",
@@ -57,7 +98,7 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
             Almost done! Your quotes are just minutes away.
           </h1>
           <p className="text-muted-foreground text-lg">
-            Enter your details so your decking pros can send accurate pricing.
+            Enter your details so your {tradeLabel} pros can send accurate pricing.
           </p>
         </header>
 
@@ -128,7 +169,7 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
                 onClearError?.();
               }}
               onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
-              placeholder="03XX XXXXXXX, +92 3XX…, 04XX XXX XXX, or +61…"
+              placeholder="04XX XXX XXX"
             />
             {show("phone") && <p className="text-destructive text-sm mt-1">{errors.phone}</p>}
           </div>
@@ -168,10 +209,10 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
             </button>
             <button
               type="submit"
-              disabled={submitting || !canSubmit}
+              disabled={!canSubmit}
               className="flex-[1.5] flex items-center justify-center px-6 py-4 bg-brand-orange text-primary-foreground font-bold rounded-xl transition-opacity hover:opacity-90 disabled:opacity-50 shadow-md"
             >
-              {submitting ? "Sending code..." : "Get My Free Quotes"}
+              Get My Free Quotes
               <ArrowRight className="w-5 h-5 ml-2" />
             </button>
           </div>

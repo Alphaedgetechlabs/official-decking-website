@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Menu, X, Phone, Quote } from "lucide-react";
-import logoImage from "@/assets/quotemyfence-logo-new.webp";
+import { Menu, X, Phone } from "lucide-react";
+import quoteMyFenceLogo from "@/assets/quotemyfence-wordmark.png";
 interface HeaderProps {
   onQuoteClick: () => void;
 }
@@ -20,9 +20,13 @@ const Header = ({
   return <header className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border shadow-soft">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+          {/* Logo — QuoteMyFence wordmark image */}
           <Link to="/" className="flex items-center">
-            <img src={logoImage} alt="QuoteMyDeck" className="h-10 md:h-11" />
+            <img
+              src={quoteMyFenceLogo}
+              alt="QuoteMyFence"
+              className="h-12 w-auto object-contain sm:h-[52px]"
+            />
           </Link>
 
           {/* Desktop Navigation */}

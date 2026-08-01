@@ -1,5 +1,5 @@
-/** Minimum visible duration for OTP / matching transitions (2–3s UX buffer). */
-export const MIN_OTP_TRANSITION_MS = 2500;
+/** No artificial UI wait — resolve as soon as the underlying promise completes. */
+export const MIN_OTP_TRANSITION_MS = 0;
 
 export async function withMinimumDelay<T>(
   promise: Promise<T>,

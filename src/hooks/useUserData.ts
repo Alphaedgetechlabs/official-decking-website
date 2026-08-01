@@ -103,6 +103,11 @@ export function useDashboardUser() {
       void loadUser(firebaseUser?.uid ?? null, { background: hasCache });
     });
 
+    // Don't wait forever for auth — resolve loading via phone/session cache too.
+    void loadUser(auth.currentUser?.uid ?? null, {
+      background: !!useDashboardStore.getState().user,
+    });
+
     return () => {
       cancelled = true;
       unsubscribe();

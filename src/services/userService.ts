@@ -4,92 +4,30 @@ import {
   uploadBytes,
 } from 'firebase/storage';
 import {
-  addDoc,
-  collection,
   doc,
   getDoc,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from 'firebase/firestore';
-import { PhoneAlreadyRegisteredError } from '../errors/authErrors';
-import { HARDCODED_JOB } from '../data/jobContractors';
+import { STAGGERED_ACCEPT_ENABLED } from '../config/autoAccept';
 import { db, storage } from '../firebase';
-import type { TimelineOption, UploadedFile, WizardFormData } from '../types/wizard';
+import type { UploadedFile, WizardFormData } from '../types/wizard';
 import { sanitizePhone } from '../utils/phone';
-import { filterRealBusinesses } from '../lib/optimisticSignup';
-import { fetchRandomBusinesses, type BusinessProfile } from './businessService';
+import type { BusinessProfile } from './businessService';
+import {
+  createJob,
+  labelsFromJobType,
+  type PostedNotificationsPayload,
+  type StaggerAcceptPlan,
+} from './jobService';
+import { queueJobAcceptedEmail, queueJobAcceptedSms, queueJobPostedCustomerEmail, queueJobPostedEmails, queueJobPostedSms } from './mailService';
+import { maybeSendFirstJobWelcomeMessage } from './rtdb/adminSupportChatService';
+import { currentJobType } from '../config/brandDomain';
+import { isAcceptedBusiness } from '../utils/businessMatchStatus';
 
 const USERS_COLLECTION = 'users';
-const MAIL_COLLECTION = 'mail';
-
-const TIMELINE_LABELS: Record<TimelineOption, string> = {
-  asap: 'ASAP',
-  'within-2-weeks': 'Within 2 weeks',
-  'in-a-month': 'In a month',
-  comparing: 'Just comparing quotes',
-};
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-async function queueJobRequestEmails(
-  formData: WizardFormData,
-  businesses?: BusinessProfile[],
-): Promise<void> {
-  const resolvedBusinesses = businesses ?? (await fetchRandomBusinesses(3));
-  if (resolvedBusinesses.length === 0) return;
-
-  const userName = formData.fullName.trim();
-  const jobName = HARDCODED_JOB.title;
-  const area = formData.locationData!.displayLabel;
-  const time =
-    formData.timeline !== ''
-      ? TIMELINE_LABELS[formData.timeline]
-      : 'Not specified';
-  const description = formData.jobDescription.trim();
-  const mailRef = collection(db, MAIL_COLLECTION);
-
-  const businessesWithEmail = resolvedBusinesses.filter(
-    (business) => typeof business.email === 'string' && business.email.trim().length > 0,
-  );
-
-  if (businessesWithEmail.length === 0) {
-    console.warn('No businesses with a valid email address were found for job notifications.');
-    return;
-  }
-
-  await Promise.all(
-    businessesWithEmail.map((business) => {
-      const businessPersonEmail = business.email.trim().toLowerCase();
-
-      return addDoc(mailRef, {
-        to: businessPersonEmail,
-        message: {
-          subject: `New Job Request: ${jobName}`,
-          html: `
-      <h2>New Job Request Received</h2>
-      <p>A new user has posted a job on the platform. Here are the details:</p>
-      <ul>
-        <li><strong>User Name:</strong> ${escapeHtml(userName)}</li>
-        <li><strong>Job Name:</strong> ${escapeHtml(jobName)}</li>
-        <li><strong>Area/Location:</strong> ${escapeHtml(area)}</li>
-        <li><strong>Time:</strong> ${escapeHtml(time)}</li>
-      </ul>
-      <h3>Description:</h3>
-      <p>${escapeHtml(description)}</p>
-      <br>
-      <p>Please open the Business App to accept or review this job.</p>
-    `,
-        },
-      });
-    }),
-  );
-}
+const JOBS_COLLECTION = 'jobs';
 
 function photoStoragePath(
   phoneId: string,
@@ -121,103 +59,225 @@ export async function isPhoneRegistered(phoneId: string): Promise<boolean> {
   return byId.exists();
 }
 
+/**
+ * Creates a brand-new user document (first job lives on the user doc) and
+ * sends the RTDB welcome message. Call only for new registrations — existing
+ * users should use `saveAdditionalJob` instead.
+ *
+ * Ordering matches saveAdditionalJob / "+": createJob first (throws on
+ * failure). Account doc, photos, and notifications are best-effort after.
+ */
 export async function saveUserQuoteRequest(
   formData: WizardFormData,
   uid: string,
-  preselectedBusinesses?: BusinessProfile[],
-): Promise<{ phoneId: string; matchedBusinesses: BusinessProfile[]; photoUrls: string[] }> {
+  options?: { prefetchedBusinesses?: BusinessProfile[] },
+): Promise<{
+  phoneId: string;
+  matchedBusinesses: BusinessProfile[];
+  staggerCandidates: BusinessProfile[];
+  staggerAcceptPlan: StaggerAcceptPlan;
+  postedNotificationsPayload: PostedNotificationsPayload;
+  photoUrls: string[];
+}> {
   const phoneId = sanitizePhone(formData.phone);
   const userRef = doc(db, USERS_COLLECTION, phoneId);
-
-  if (await isPhoneRegistered(phoneId)) {
-    throw new PhoneAlreadyRegisteredError();
-  }
 
   if (!uid.trim()) {
     throw new Error('A verified Firebase Auth uid is required.');
   }
-
-  const photoUrls = await uploadUserPhotos(phoneId, formData.photos);
 
   if (!formData.locationData) {
     throw new Error('A validated Australian location is required.');
   }
 
   const locationData = formData.locationData;
-  const realPreselected = preselectedBusinesses
-    ? filterRealBusinesses(preselectedBusinesses)
-    : undefined;
-  const matchedBusinesses =
-    realPreselected && realPreselected.length > 0
-      ? realPreselected
-      : await fetchRandomBusinesses(3);
+  const prefetchedBusinesses = options?.prefetchedBusinesses ?? [];
+
+  // Same as "+": job + routing must exist before anything else.
+  const {
+    jobId,
+    matchedBusinesses,
+    staggerCandidates,
+    staggerEligibleBusinessIds,
+    photoUrls: routedPhotoUrls,
+  } = await createJob(formData, uid, phoneId, {
+    photoUrls: [],
+    prefetchedBusinesses,
+  });
   const matchedBusinessIds = matchedBusinesses.map((business) => business.id);
 
-  const formFields = {
-    type: 'user' as const,
-    location: locationData.displayLabel,
-    locationData: {
-      placeId: locationData.placeId,
-      name: locationData.name,
-      formattedAddress: locationData.formattedAddress,
-      displayLabel: locationData.displayLabel,
-      suburb: locationData.suburb,
-      state: locationData.state,
-      stateFullName: locationData.stateFullName,
-      postcode: locationData.postcode,
-      country: locationData.country,
-      countryName: locationData.countryName,
-      latitude: locationData.latitude,
-      longitude: locationData.longitude,
-      placeTypes: locationData.placeTypes,
-    },
-    timeline: formData.timeline,
-    jobDescription: formData.jobDescription.trim(),
-    photoNames: formData.photos.map((p) => p.file.name),
-    photoUrls,
-    photoCount: formData.photos.length,
-    fullName: formData.fullName.trim(),
-    email: formData.email.trim().toLowerCase(),
-    phone: phoneId,
-    phoneNormalized: phoneId,
-    isVerified: true,
-    uid,
-    matchedBusinessIds,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-
-  await setDoc(userRef, formFields);
+  let photoUrls: string[] = [];
 
   try {
-    await queueJobRequestEmails(formData, matchedBusinesses);
+    await setDoc(userRef, {
+      type: 'user' as const,
+      location: locationData.displayLabel,
+      locationData: {
+        placeId: locationData.placeId,
+        name: locationData.name,
+        formattedAddress: locationData.formattedAddress,
+        displayLabel: locationData.displayLabel,
+        suburb: locationData.suburb,
+        state: locationData.state,
+        stateFullName: locationData.stateFullName,
+        postcode: locationData.postcode,
+        country: locationData.country,
+        countryName: locationData.countryName,
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+        placeTypes: locationData.placeTypes,
+      },
+      timeline: formData.timeline,
+      jobDescription: formData.jobDescription.trim(),
+      photoNames: formData.photos.map((p) => p.file.name),
+      photoUrls: [],
+      photoCount: formData.photos.length,
+      fullName: formData.fullName.trim(),
+      email: (formData.email ?? '').trim().toLowerCase(),
+      phone: phoneId,
+      phoneNormalized: phoneId,
+      isVerified: true,
+      uid,
+      matchedBusinessIds,
+      status: 'open' as const,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
   } catch (err) {
-    console.error('Failed to queue job notification email:', err);
-    if (err instanceof Error) {
-      console.error(err.message);
+    console.error(`Failed to save user account doc for ${phoneId}:`, err);
+  }
+
+  if (formData.photos.length > 0) {
+    try {
+      photoUrls = await uploadUserPhotos(phoneId, formData.photos);
+      await Promise.all([
+        updateDoc(doc(db, JOBS_COLLECTION, jobId), {
+          photoUrls,
+          photoCount: photoUrls.length,
+          updatedAt: serverTimestamp(),
+        }),
+        updateDoc(userRef, {
+          photoUrls,
+          photoCount: photoUrls.length,
+          updatedAt: serverTimestamp(),
+        }),
+      ]);
+    } catch (err) {
+      console.error(`Failed to upload/patch photos for job ${jobId}:`, err);
     }
   }
 
-  return { phoneId, matchedBusinesses, photoUrls };
+  if (!STAGGERED_ACCEPT_ENABLED) {
+    void queueJobPostedEmails(formData, matchedBusinesses, {
+      jobId,
+      jobTitle: labelsFromJobType(currentJobType).title,
+      customerLabel: 'A new user',
+      matchedBusinessIds,
+    })
+      .then(() =>
+        Promise.all(
+          matchedBusinesses.filter(isAcceptedBusiness).map((acceptor) =>
+            queueJobAcceptedEmail({
+              to: formData.email,
+              formData,
+              acceptor,
+            }),
+          ),
+        ),
+      )
+      .catch((err) => {
+        console.error(`Failed to queue job notification email for ${jobId}:`, err);
+      });
+
+    void queueJobPostedCustomerEmail({
+      to: formData.email,
+      formData,
+    }).catch((err) => {
+      console.error(
+        `Failed to queue customer job-posted email for ${jobId}:`,
+        err,
+      );
+    });
+
+    void queueJobPostedSms(formData, matchedBusinesses, {
+      jobId,
+      jobTitle: labelsFromJobType(currentJobType).title,
+      customerLabel: 'A new user',
+      matchedBusinessIds,
+    })
+      .then(() =>
+        Promise.all(
+          matchedBusinesses.filter(isAcceptedBusiness).map((acceptor) =>
+            queueJobAcceptedSms({
+              formData,
+              acceptor,
+              usersLeadDocId: phoneId,
+              jobId,
+            }),
+          ),
+        ),
+      )
+      .catch((err) => {
+        console.error(`Failed to queue job notification SMS for ${jobId}:`, err);
+      });
+  }
+
+  void maybeSendFirstJobWelcomeMessage(phoneId).catch((err) => {
+    console.error('Failed to send first-job welcome support message:', err);
+  });
+
+  return {
+    phoneId,
+    matchedBusinesses,
+    staggerCandidates,
+    staggerAcceptPlan: {
+      jobId,
+      uid,
+      userId: phoneId,
+      formData,
+      jobType: currentJobType,
+      matchedBusinessIds: staggerEligibleBusinessIds,
+      staggerCandidates,
+      usersLeadDocIdForAcceptedSms: phoneId,
+      // Same value createJob passed into route (not post-upload photoUrls).
+      photoUrls: routedPhotoUrls,
+    },
+    postedNotificationsPayload: {
+      formData,
+      matchedBusinesses,
+      options: {
+        jobId,
+        jobTitle: labelsFromJobType(currentJobType).title,
+        customerLabel: 'A new user',
+        matchedBusinessIds,
+      },
+    },
+    photoUrls,
+  };
 }
 
 /** Persist signup in the background after optimistic UI has advanced. */
 export function queueSaveUserQuoteRequest(
   formData: WizardFormData,
   uid: string,
-  preselectedBusinesses?: BusinessProfile[],
   onSuccess?: (result: {
     phoneId: string;
     matchedBusinesses: BusinessProfile[];
+    staggerCandidates: BusinessProfile[];
+    staggerAcceptPlan: StaggerAcceptPlan;
+    postedNotificationsPayload: PostedNotificationsPayload;
     matchedBusinessIds: string[];
     photoUrls: string[];
   }) => void,
 ): void {
-  void saveUserQuoteRequest(formData, uid, preselectedBusinesses)
-    .then(({ phoneId, matchedBusinesses, photoUrls }) => {
+  void saveUserQuoteRequest(formData, uid)
+    .then(({ phoneId, matchedBusinesses, staggerCandidates, staggerAcceptPlan, postedNotificationsPayload, photoUrls }) => {
       onSuccess?.({
         phoneId,
         matchedBusinesses,
+        staggerCandidates,
+        staggerAcceptPlan,
+        postedNotificationsPayload,
         matchedBusinessIds: matchedBusinesses.map((business) => business.id),
         photoUrls,
       });

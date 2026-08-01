@@ -51,6 +51,8 @@ export function getAuthErrorMessage(err: unknown, fallback: string): string {
         return 'Please enter a valid phone number.';
       case 'auth/invalid-app-credential':
         return 'Firebase app credential error. Check API key, authorized domains, and reCAPTCHA in Firebase Console.';
+      case 'auth/network-request-failed':
+        return 'Network error. Check your connection and try again.';
       default:
         return `${fallback} (${code})`;
     }

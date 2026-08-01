@@ -5,13 +5,16 @@ import FenceTypes from "@/components/FenceTypes";
 import ReviewsSection from "@/components/ReviewsSection";
 import FAQSection from "@/components/FAQSection";
 import Footer from "@/components/Footer";
+import { brandName, tradeLabelTitle } from "@/config/brandDomain";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
 const QUOTE_URL = "/quote";
 
 const Index = () => {
-  useDocumentTitle("QuoteMyDeck: Australia's #1 Decking Quote Platform — Get 3 Free Quotes in Minutes");
-  
+  useDocumentTitle(
+    `${brandName}: Australia's #1 ${tradeLabelTitle} Quote Platform — Get 3 Free Quotes in Minutes`,
+  );
+
   const handleQuoteClick = () => {
     window.history.pushState({}, "", QUOTE_URL); window.dispatchEvent(new PopStateEvent("popstate"));
   };

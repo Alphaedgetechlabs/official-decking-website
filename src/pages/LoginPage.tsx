@@ -4,6 +4,7 @@ import type { ConfirmationResult } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
 import { AppLogo } from '../components/layout/AppLogo';
 import { OrangeDotsLoader } from '../components/ui/OrangeDotsLoader';
+import { OtpBoxesInput } from '../components/ui/OtpBoxesInput';
 import { WizardCard } from '../components/wizard/WizardCard';
 import { completeLoginVerification } from '../lib/completeLoginVerification';
 import { ensureInstantBusinesses, prefetchDashboardForUser } from '../lib/dashboardBusinesses';
@@ -248,19 +249,14 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
               >
                 Verification Code
               </label>
-              <input
+              <OtpBoxesInput
                 id="login-otp"
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
                 value={otp}
                 autoFocus
-                onChange={(e) => {
-                  setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                onChange={(value) => {
+                  setOtp(value.replace(/\D/g, '').slice(0, 6));
                   setError(null);
                 }}
-                placeholder="000000"
-                className="w-full rounded-lg border border-border px-4 py-3 text-center text-lg tracking-[0.3em] text-heading placeholder:text-gray-400 outline-none transition-shadow focus:border-brand focus:ring-2 focus:ring-brand/30"
               />
             </div>
           </>

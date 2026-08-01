@@ -2,7 +2,6 @@ import { MessageSquare } from 'lucide-react';
 import type { BusinessProfile } from '../../services/businessService';
 import {
   getBusinessAvatarStyle,
-  getBusinessDisplayMeta,
   getBusinessInitials,
 } from '../../utils/businessDisplay';
 
@@ -12,6 +11,13 @@ interface BusinessProfileCardProps {
   variant?: 'row' | 'card';
 }
 
+function truncateWords(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length <= maxWords) return words.join(' ');
+  return `${words.slice(0, maxWords).join(' ')}...`;
+}
+
 export function BusinessProfileCard({
   business,
   onMessage,
@@ -19,9 +25,9 @@ export function BusinessProfileCard({
 }: BusinessProfileCardProps) {
   const initials = getBusinessInitials(business.businessName);
   const { avatarBg, avatarText } = getBusinessAvatarStyle(business.businessName);
-  const { rating, reviews, specialty } = getBusinessDisplayMeta(
-    business.businessName,
-  );
+  const description = truncateWords(business.description || '', 20);
+  const rating = business.rating || 0;
+  const reviews = business.reviewCount || 0;
 
   if (variant === 'card') {
     return (
@@ -52,7 +58,7 @@ export function BusinessProfileCard({
           </button>
         </div>
         <p className="mt-3 text-[12px] text-body">
-          {specialty} · Available for your job
+          {description} · Available for your job
         </p>
       </div>
     );
@@ -71,7 +77,7 @@ export function BusinessProfileCard({
           {business.businessName}
         </p>
         <p className="mt-1 truncate text-[12px] leading-snug text-body">
-          {specialty} • {rating} ({reviews} reviews)
+          {description} • {rating} ({reviews} reviews)
         </p>
       </div>
 
