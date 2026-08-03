@@ -36,10 +36,10 @@ const FEATURES = [
   { icon: Zap, label: 'Fast\nResponse' },
 ];
 
-/** Hold after all 3 accepts revealed (“Congratulations!”) before routing home. */
+/** Hold after all planned accepts revealed (“Congratulations!”) before routing home. */
 const FULL_SUCCESS_HOLD_MS = 3000;
-/** Partial exit (idle timeout, <3 accepts) navigates home immediately. */
-const PARTIAL_EXIT_HOLD_MS = 0;
+/** Partial exit (idle timeout, short of planned accepts) — brief hold before redirect. */
+const PARTIAL_EXIT_HOLD_MS = 1500;
 const FEATURES_HOLD_MS = 500;
 /** Wait after Job Posted before revealing the 1st accept. */
 const JOB_POSTED_TO_FIRST_ACCEPT_MS = 3000;
@@ -47,6 +47,8 @@ const JOB_POSTED_TO_FIRST_ACCEPT_MS = 3000;
 const STAGGER_MS = 2000;
 /** Partial-accept idle timeout after last activity. */
 const ACTIVITY_TIMEOUT_MS = 5000;
+/** How often to bump activity while waiting inside a stagger delay. */
+const ACTIVITY_BUMP_INTERVAL_MS = 1000;
 
 export type { BusinessMatchStatus };
 
@@ -85,6 +87,22 @@ function toMatchingContractor(business: BusinessProfile): MatchingContractor {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Wait `ms`, bumping activity every ~1s so the idle timer cannot race long delays. */
+async function delayWithActivity(
+  ms: number,
+  bump: () => void,
+  shouldAbort?: () => boolean,
+): Promise<void> {
+  const deadline = Date.now() + ms;
+  bump();
+  while (Date.now() < deadline) {
+    if (shouldAbort?.()) return;
+    const remaining = deadline - Date.now();
+    await delay(Math.min(ACTIVITY_BUMP_INTERVAL_MS, remaining));
+    bump();
+  }
 }
 
 function resolveUserId(user: UserDocument | null, formPhone: string): string {
@@ -209,7 +227,11 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
   const mountAtRef = useRef(Date.now());
   const staggerQueueRef = useRef(Promise.resolve());
   const backendCountRef = useRef(0);
+  /** Planned accept slots for this run (staggerCandidates.length, capped). */
+  const plannedSlotsRef = useRef(0);
   const completingRef = useRef(false);
+  /** True while the stagger accept chain is actively delaying/writing. */
+  const staggerRunningRef = useRef(false);
   const queuedPostedNotificationsJobIdsRef = useRef<Set<string>>(new Set());
   const readyPromiseStaggerPlanRef = useRef<StaggerAcceptPlan | null>(null);
   const startedStaggerJobIdRef = useRef<string | null>(null);
@@ -342,6 +364,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
       TARGET_MATCH_SLOTS,
     );
     backendCountRef.current = backendCount;
+    plannedSlotsRef.current = backendCount;
 
     // Wait for job post before showing any accept UI.
     if (!jobPosted || completingRef.current) return;
@@ -349,27 +372,47 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
 
     bumpActivity();
 
+    staggerRunningRef.current = true;
+    console.log('[STAGGER] CHAIN START (listener)', {
+      backendCount,
+      revealed: revealedRef.current,
+      at: Date.now(),
+    });
+
     staggerQueueRef.current = staggerQueueRef.current.then(async () => {
-      while (revealedRef.current < backendCountRef.current) {
-        const next = revealedRef.current + 1;
-        console.log('[STAGGER] waiting', next === 1 ? JOB_POSTED_TO_FIRST_ACCEPT_MS : STAGGER_MS, 'ms for card', next, 'at', Date.now());
-        await delay(
-          next === 1 ? JOB_POSTED_TO_FIRST_ACCEPT_MS : STAGGER_MS,
-        );
-        if (completingRef.current) return;
-        if (next > backendCountRef.current) return;
+      staggerRunningRef.current = true;
+      try {
+        while (revealedRef.current < backendCountRef.current) {
+          const next = revealedRef.current + 1;
+          const planned = backendCountRef.current;
+          console.log('[STAGGER] waiting', next === 1 ? JOB_POSTED_TO_FIRST_ACCEPT_MS : STAGGER_MS, 'ms for card', next, 'at', Date.now());
+          await delayWithActivity(
+            next === 1 ? JOB_POSTED_TO_FIRST_ACCEPT_MS : STAGGER_MS,
+            bumpActivity,
+            () => completingRef.current,
+          );
+          if (completingRef.current) return;
+          if (next > backendCountRef.current) return;
 
-        console.log('[STAGGER] reveal', next, 'at', Date.now());
-        revealedRef.current = next;
-        if (next === 1) {
-          setPhase('accepting');
-        }
-        setRevealedCount(next);
-        bumpActivity();
+          console.log('[STAGGER] ACCEPT', { next, planned, at: Date.now() });
+          revealedRef.current = next;
+          if (next === 1) {
+            setPhase('accepting');
+          }
+          setRevealedCount(next);
+          bumpActivity();
 
-        if (next >= TARGET_MATCH_SLOTS) {
-          return;
+          if (next >= planned) {
+            console.log('[STAGGER] CHAIN COMPLETE (listener)', {
+              revealed: next,
+              planned,
+              at: Date.now(),
+            });
+            return;
+          }
         }
+      } finally {
+        staggerRunningRef.current = false;
       }
     });
   }, [acceptedFromBackend, jobPosted]);
@@ -384,6 +427,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
       TARGET_MATCH_SLOTS,
     );
     backendCountRef.current = stagedCount;
+    plannedSlotsRef.current = stagedCount;
 
     console.log('[STAGGER] EFFECT RUN', {
       jobId: activePlan?.jobId ?? null,
@@ -406,97 +450,117 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
 
     const myRunId = staggerRunIdRef.current;
 
-    console.log('[STAGGER] CHAIN SCHEDULED', {
+    staggerRunningRef.current = true;
+    console.log('[STAGGER] CHAIN START', {
       jobId: activePlan.jobId,
+      stagedCount,
       myRunId,
       at: Date.now(),
     });
 
     staggerQueueRef.current = staggerQueueRef.current.then(async () => {
-      while (revealedRef.current < backendCountRef.current) {
-        const next = revealedRef.current + 1;
-        await delay(
-          next === 1 ? JOB_POSTED_TO_FIRST_ACCEPT_MS : STAGGER_MS,
-        );
-        if (activeStaggerRunIdRef.current !== myRunId) return;
-        if (completingRef.current) return;
-        if (next > backendCountRef.current) return;
+      staggerRunningRef.current = true;
+      try {
+        while (revealedRef.current < backendCountRef.current) {
+          const next = revealedRef.current + 1;
+          const planned = backendCountRef.current;
+          await delayWithActivity(
+            next === 1 ? JOB_POSTED_TO_FIRST_ACCEPT_MS : STAGGER_MS,
+            bumpActivity,
+            () =>
+              activeStaggerRunIdRef.current !== myRunId || completingRef.current,
+          );
+          if (activeStaggerRunIdRef.current !== myRunId) return;
+          if (completingRef.current) return;
+          if (next > backendCountRef.current) return;
 
-        const candidate = activePlan.staggerCandidates[next - 1];
-        if (!candidate) return;
+          const candidate = activePlan.staggerCandidates[next - 1];
+          if (!candidate) return;
 
-        console.log('[STAGGER] WRITE', {
-          next,
-          id: candidate.id,
-          businessName: candidate.businessName,
-          myRunId,
-          activeRunId: activeStaggerRunIdRef.current,
-          at: Date.now(),
-        });
-
-        try {
-          await writeAcceptedJobForBusiness({
-            plan: activePlan,
-            business: candidate,
+          console.log('[STAGGER] WRITE', {
+            next,
+            id: candidate.id,
+            businessName: candidate.businessName,
+            myRunId,
+            activeRunId: activeStaggerRunIdRef.current,
+            at: Date.now(),
           });
-        } catch (err) {
-          console.error(
-            `[stagger] Failed accepted_jobs write for ${activePlan.jobId} business ${candidate.id}:`,
-            err,
-          );
+
+          try {
+            await writeAcceptedJobForBusiness({
+              plan: activePlan,
+              business: candidate,
+            });
+          } catch (err) {
+            console.error(
+              `[stagger] Failed accepted_jobs write for ${activePlan.jobId} business ${candidate.id}:`,
+              err,
+            );
+            // Continue — one failed business must not abort the rest of the chain.
+          }
+          if (activeStaggerRunIdRef.current !== myRunId) return;
+
+          console.log('[STAGGER] ACCEPT', {
+            next,
+            id: candidate.id,
+            businessName: candidate.businessName,
+            planned,
+            myRunId,
+            activeRunId: activeStaggerRunIdRef.current,
+            at: Date.now(),
+          });
+
+          void queueJobAcceptedEmail({
+            to: activePlan.formData.email,
+            formData: activePlan.formData,
+            acceptor: candidate,
+            jobTitle: labelsFromJobType(currentJobType).title,
+            position: next as 1 | 2 | 3,
+            acceptedSoFar: activePlan.staggerCandidates.slice(0, next).map((b) => ({
+              businessName: b.businessName,
+              rating: b.rating,
+              reviewCount: b.reviewCount,
+            })),
+          }).catch((err) => {
+            console.error(
+              `[stagger] Failed to queue accepted email for ${activePlan.jobId} business ${candidate.id}:`,
+              err,
+            );
+          });
+
+          void queueJobAcceptedSms({
+            formData: activePlan.formData,
+            acceptor: candidate,
+            usersLeadDocId: activePlan.usersLeadDocIdForAcceptedSms,
+            jobId: activePlan.jobId,
+            jobTitle: labelsFromJobType(currentJobType).title,
+          }).catch((err) => {
+            console.error(
+              `[stagger] Failed to queue accepted SMS for ${activePlan.jobId} business ${candidate.id}:`,
+              err,
+            );
+          });
+
+          revealedRef.current = next;
+          if (next === 1) {
+            setPhase('accepting');
+          }
+          setRevealedCount(next);
+          bumpActivity();
+
+          if (next >= planned) {
+            console.log('[STAGGER] CHAIN COMPLETE', {
+              jobId: activePlan.jobId,
+              revealed: next,
+              planned,
+              myRunId,
+              at: Date.now(),
+            });
+            return;
+          }
         }
-        if (activeStaggerRunIdRef.current !== myRunId) return;
-
-        console.log('[STAGGER] EMAIL', {
-          next,
-          id: candidate.id,
-          businessName: candidate.businessName,
-          myRunId,
-          activeRunId: activeStaggerRunIdRef.current,
-          at: Date.now(),
-        });
-
-        void queueJobAcceptedEmail({
-          to: activePlan.formData.email,
-          formData: activePlan.formData,
-          acceptor: candidate,
-          jobTitle: labelsFromJobType(currentJobType).title,
-          position: next as 1 | 2 | 3,
-          acceptedSoFar: activePlan.staggerCandidates.slice(0, next).map((b) => ({
-            businessName: b.businessName,
-            rating: b.rating,
-            reviewCount: b.reviewCount,
-          })),
-        }).catch((err) => {
-          console.error(
-            `[stagger] Failed to queue accepted email for ${activePlan.jobId} business ${candidate.id}:`,
-            err,
-          );
-        });
-
-        void queueJobAcceptedSms({
-          formData: activePlan.formData,
-          acceptor: candidate,
-          usersLeadDocId: activePlan.usersLeadDocIdForAcceptedSms,
-          jobId: activePlan.jobId,
-          jobTitle: labelsFromJobType(currentJobType).title,
-        }).catch((err) => {
-          console.error(
-            `[stagger] Failed to queue accepted SMS for ${activePlan.jobId} business ${candidate.id}:`,
-            err,
-          );
-        });
-
-        revealedRef.current = next;
-        if (next === 1) {
-          setPhase('accepting');
-        }
-        setRevealedCount(next);
-        bumpActivity();
-
-        if (next >= TARGET_MATCH_SLOTS) {
-          return;
-        }
+      } finally {
+        staggerRunningRef.current = false;
       }
     });
   }, [jobPosted, wizardStaggerAcceptPlan]);
@@ -504,6 +568,12 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
   const beginFullSuccess = () => {
     if (completingRef.current || hasRoutedRef.current) return;
     completingRef.current = true;
+    console.log('[STAGGER] EXIT DECISION', {
+      mode: 'full',
+      revealed: revealedRef.current,
+      planned: plannedSlotsRef.current,
+      at: Date.now(),
+    });
     setPhase('complete');
     setExitMode('full');
     setShowCompleteBanner(true);
@@ -513,38 +583,59 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
   const beginPartialExit = () => {
     if (completingRef.current || hasRoutedRef.current) return;
     completingRef.current = true;
+    console.log('[STAGGER] EXIT DECISION', {
+      mode: 'partial',
+      revealed: revealedRef.current,
+      planned: plannedSlotsRef.current,
+      at: Date.now(),
+    });
     setExitMode('partial');
     setShowCompleteBanner(true);
   };
 
-  // Full success only when all 3 slots have been revealed.
+  // Full success when all planned slots (staggerCandidates) have been revealed.
   useEffect(() => {
-    if (revealedCount >= TARGET_MATCH_SLOTS) {
+    const planned = plannedSlotsRef.current;
+    if (planned > 0 && revealedCount >= planned) {
       beginFullSuccess();
     }
   }, [revealedCount]);
 
-  // Idle timeout while short of 3 — leave without Congratulations.
+  // Idle timeout while short of planned slots — leave without Congratulations.
+  // Never fire while the stagger chain is still delaying/writing.
   useEffect(() => {
     if (!jobPosted || exitMode !== 'none') return;
 
     const timer = window.setInterval(() => {
       if (completingRef.current) return;
-      if (revealedRef.current >= TARGET_MATCH_SLOTS) return;
+      if (staggerRunningRef.current) return;
+      const planned = plannedSlotsRef.current;
+      if (planned > 0 && revealedRef.current >= planned) return;
       if (Date.now() - activityAtRef.current < ACTIVITY_TIMEOUT_MS) return;
+      console.log('[STAGGER] IDLE FIRE', {
+        revealed: revealedRef.current,
+        planned,
+        idleMs: Date.now() - activityAtRef.current,
+        at: Date.now(),
+      });
       beginPartialExit();
     }, 250);
 
     return () => window.clearInterval(timer);
   }, [jobPosted, exitMode]);
 
-  // Exit → home. Features / Congrats path only for full (all 3 accepted).
+  // Exit → home. Features / Congrats path only for full (all planned accepted).
   useEffect(() => {
     if (exitMode === 'none') return;
 
     let cancelled = false;
 
     void (async () => {
+      console.log('[STAGGER] EXIT HOLD START', {
+        exitMode,
+        holdMs: exitMode === 'full' ? FULL_SUCCESS_HOLD_MS : PARTIAL_EXIT_HOLD_MS,
+        at: Date.now(),
+      });
       await delay(exitMode === 'full' ? FULL_SUCCESS_HOLD_MS : PARTIAL_EXIT_HOLD_MS);
       if (cancelled || hasRoutedRef.current) return;
 
@@ -555,6 +646,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
       }
 
       hasRoutedRef.current = true;
+      console.log('[STAGGER] EXIT NAVIGATE', { exitMode, at: Date.now() });
       onCompleteRef.current();
     })();
 
@@ -564,13 +656,15 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
   }, [exitMode, variant]);
 
   // Never show accept cards until the job is posted.
+  const plannedSlots =
+    plannedSlotsRef.current > 0 ? plannedSlotsRef.current : TARGET_MATCH_SLOTS;
   const visibleContractors = jobPosted
     ? acceptedFromBackend.slice(0, revealedCount).map(toMatchingContractor)
     : [];
-  const skeletonCount = Math.max(0, TARGET_MATCH_SLOTS - visibleContractors.length);
+  const skeletonCount = Math.max(0, plannedSlots - visibleContractors.length);
   const isFullSuccess = exitMode === 'full';
 
-  // Orange top banner — hidden until job is posted. "Congratulations!" only for all 3.
+  // Orange top banner — hidden until job is posted. "Congratulations!" only for all planned.
   const orangeBannerText = (() => {
     if (!jobPosted) return null;
     if (isFullSuccess) return 'Congratulations!';
@@ -608,7 +702,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
 
   const bannerSubtitle =
     showCompleteBanner && isFullSuccess
-      ? `We've matched you with ${TARGET_MATCH_SLOTS} top-rated ${tradeLabel} contractors in your area. You'll receive your quotes shortly.`
+      ? `We've matched you with ${plannedSlots} top-rated ${tradeLabel} contractors in your area. You'll receive your quotes shortly.`
       : showCompleteBanner
         ? 'You can message your matched contractors from Home.'
         : null;
