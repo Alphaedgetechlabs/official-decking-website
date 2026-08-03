@@ -227,7 +227,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
   const mountAtRef = useRef(Date.now());
   const staggerQueueRef = useRef(Promise.resolve());
   const backendCountRef = useRef(0);
-  /** Planned accept slots for this run (staggerCandidates.length, capped). */
+  /** Planned accept attempts for this run (staggerCandidates.length, capped). Exit only — not UI. */
   const plannedSlotsRef = useRef(0);
   const completingRef = useRef(false);
   /** True while the stagger accept chain is actively delaying/writing. */
@@ -593,7 +593,8 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
     setShowCompleteBanner(true);
   };
 
-  // Full success when all planned slots (staggerCandidates) have been revealed.
+  // Chain done when all planned candidates have been attempted → exit after hold
+  // (unfilled UI slots stay grey; always render TARGET_MATCH_SLOTS cards).
   useEffect(() => {
     const planned = plannedSlotsRef.current;
     if (planned > 0 && revealedCount >= planned) {
@@ -601,7 +602,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
     }
   }, [revealedCount]);
 
-  // Idle timeout while short of planned slots — leave without Congratulations.
+  // Idle timeout while chain never finished — leave without Congratulations.
   // Never fire while the stagger chain is still delaying/writing.
   useEffect(() => {
     if (!jobPosted || exitMode !== 'none') return;
@@ -624,7 +625,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
     return () => window.clearInterval(timer);
   }, [jobPosted, exitMode]);
 
-  // Exit → home. Features / Congrats path only for full (all planned accepted).
+  // Exit → home. Features / Congrats path only for full (chain finished all planned candidates).
   useEffect(() => {
     if (exitMode === 'none') return;
 
@@ -655,16 +656,15 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
     };
   }, [exitMode, variant]);
 
-  // Never show accept cards until the job is posted.
-  const plannedSlots =
-    plannedSlotsRef.current > 0 ? plannedSlotsRef.current : TARGET_MATCH_SLOTS;
+  // Always render exactly TARGET_MATCH_SLOTS cards; unfilled slots stay grey placeholders.
+  // plannedSlotsRef only drives chain-done / exit — never the visible card count.
   const visibleContractors = jobPosted
     ? acceptedFromBackend.slice(0, revealedCount).map(toMatchingContractor)
     : [];
-  const skeletonCount = Math.max(0, plannedSlots - visibleContractors.length);
+  const skeletonCount = Math.max(0, TARGET_MATCH_SLOTS - visibleContractors.length);
   const isFullSuccess = exitMode === 'full';
 
-  // Orange top banner — hidden until job is posted. "Congratulations!" only for all planned.
+  // Orange top banner — hidden until job is posted. "Congratulations!" when chain finished.
   const orangeBannerText = (() => {
     if (!jobPosted) return null;
     if (isFullSuccess) return 'Congratulations!';
@@ -702,7 +702,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
 
   const bannerSubtitle =
     showCompleteBanner && isFullSuccess
-      ? `We've matched you with ${plannedSlots} top-rated ${tradeLabel} contractors in your area. You'll receive your quotes shortly.`
+      ? `We've matched you with ${TARGET_MATCH_SLOTS} top-rated ${tradeLabel} contractors in your area. You'll receive your quotes shortly.`
       : showCompleteBanner
         ? 'You can message your matched contractors from Home.'
         : null;
