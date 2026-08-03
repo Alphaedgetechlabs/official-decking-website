@@ -13,8 +13,7 @@ interface Step4AddJobContactProps {
 }
 
 export function Step4AddJobContact({ uid, userId }: Step4AddJobContactProps) {
-  const { formData, updateFormData, prevStep, nextStep, matchedBusinesses } =
-    useWizard();
+  const { formData, updateFormData, prevStep, nextStep, setStaggerAcceptPlan } = useWizard();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const isValid =
@@ -33,7 +32,9 @@ export function Step4AddJobContact({ uid, userId }: Step4AddJobContactProps) {
       { ...formData, phone: normalizedPhone },
       uid,
       userId,
-      matchedBusinesses.length > 0 ? matchedBusinesses : undefined,
+      (result) => {
+        setStaggerAcceptPlan(result.staggerAcceptPlan);
+      },
     );
     nextStep();
   };

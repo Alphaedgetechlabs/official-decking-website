@@ -1,0 +1,21 @@
+{
+  "projects": {
+    "default": "quotemyfence-flutter-and-webap"
+  },
+  "targets": {
+    "quotemyfence-flutter-and-webap": {
+      "hosting": {
+        "default": [
+          "quotemyfence-flutter-and-webap"
+        ],
+        "fencing": [
+          "fencing"
+        ],
+        "decking": [
+          "decking"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

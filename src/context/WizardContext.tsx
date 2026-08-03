@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import type { BusinessProfile } from '../services/businessService';
+import type { StaggerAcceptPlan } from '../services/jobService';
 import { INITIAL_FORM_DATA, type WizardFormData } from '../types/wizard';
 
 export type WizardVariant = 'signup' | 'addJob';
@@ -10,7 +11,9 @@ interface WizardContextValue {
   variant: WizardVariant;
   totalSteps: number;
   matchedBusinesses: BusinessProfile[];
+  staggerAcceptPlan: StaggerAcceptPlan | null;
   setMatchedBusinesses: (businesses: BusinessProfile[]) => void;
+  setStaggerAcceptPlan: (plan: StaggerAcceptPlan | null) => void;
   setStep: (step: number) => void;
   updateFormData: (data: Partial<WizardFormData>) => void;
   nextStep: () => void;
@@ -26,11 +29,10 @@ interface WizardProviderProps {
   initialFormData?: Partial<WizardFormData>;
   initialMatchedBusinesses?: BusinessProfile[];
   initialStep?: number;
-  onBackFromOtp?: () => void;
 }
 
 const TOTAL_STEPS: Record<WizardVariant, number> = {
-  signup: 6,
+  signup: 5,
   addJob: 5,
 };
 
@@ -40,7 +42,6 @@ export function WizardProvider({
   initialFormData,
   initialMatchedBusinesses = [],
   initialStep = 1,
-  onBackFromOtp,
 }: WizardProviderProps) {
   const totalSteps = TOTAL_STEPS[variant];
   const [step, setStep] = useState(initialStep);
@@ -51,24 +52,22 @@ export function WizardProvider({
   const [matchedBusinesses, setMatchedBusinesses] = useState<BusinessProfile[]>(
     initialMatchedBusinesses,
   );
+  const [staggerAcceptPlan, setStaggerAcceptPlan] = useState<StaggerAcceptPlan | null>(
+    null,
+  );
 
   const updateFormData = (data: Partial<WizardFormData>) => {
     setFormData((prev) => ({ ...prev, ...data }));
   };
 
   const nextStep = () => setStep((s) => Math.min(s + 1, totalSteps));
-  const prevStep = () => {
-    if (step === 5 && onBackFromOtp) {
-      onBackFromOtp();
-      return;
-    }
-    setStep((s) => Math.max(s - 1, 1));
-  };
+  const prevStep = () => setStep((s) => Math.max(s - 1, 1));
 
   const resetWizard = (data?: Partial<WizardFormData>) => {
     setStep(1);
     setFormData({ ...INITIAL_FORM_DATA, ...data });
     setMatchedBusinesses(initialMatchedBusinesses);
+    setStaggerAcceptPlan(null);
   };
 
   return (
@@ -79,7 +78,9 @@ export function WizardProvider({
         variant,
         totalSteps,
         matchedBusinesses,
+        staggerAcceptPlan,
         setMatchedBusinesses,
+        setStaggerAcceptPlan,
         setStep,
         updateFormData,
         nextStep,

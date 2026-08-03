@@ -2,7 +2,6 @@ import type { BusinessProfile } from '../services/businessService';
 import type { MessageItem } from '../data/messages';
 import {
   getBusinessAvatarStyle,
-  getBusinessDisplayMeta,
   getBusinessInitials,
 } from './businessDisplay';
 
@@ -26,7 +25,6 @@ export function businessToMessageItem(
 ): MessageItem {
   const initials = getBusinessInitials(business.businessName);
   const { avatarBg, avatarText } = getBusinessAvatarStyle(business.businessName);
-  const { rating } = getBusinessDisplayMeta(business.businessName);
   const slot = index % PREVIEW_TEMPLATES.length;
 
   return {
@@ -34,7 +32,7 @@ export function businessToMessageItem(
     chatId: buildChatId(userId, business.id),
     businessId: business.id,
     name: business.businessName,
-    rating,
+    rating: business.rating || 0,
     time: TIME_LABELS[slot],
     preview: PREVIEW_TEMPLATES[slot],
     status: STATUS_LABELS[slot],

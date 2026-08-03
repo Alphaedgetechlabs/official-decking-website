@@ -1,0 +1,83 @@
+{
+  "rules": {
+    "status": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "userChats": {
+      "$userId": {
+        ".read": "auth != null && (auth.token.admin === true || auth.uid == $userId || $userId == auth.token.phone_number || auth.token.phone_number == ('+' + $userId))",
+        "$chatId": {
+          ".write": "auth != null"
+        }
+      }
+    },
+    "chats": {
+      "$chatId": {
+        ".read": "auth != null && (auth.token.admin === true || root.child('chats').child($chatId).child('meta').child('userId').val() === auth.uid || root.child('chats').child($chatId).child('meta').child('businessId').val() === auth.uid)",
+        ".write": "auth != null && (auth.token.admin === true || root.child('chats').child($chatId).child('meta').child('userId').val() === auth.uid || root.child('chats').child($chatId).child('meta').child('businessId').val() === auth.uid)",
+        "meta": {
+          ".read": "auth != null && (auth.token.admin === true || data.child('userId').val() === auth.uid || data.child('businessId').val() === auth.uid)",
+          ".write": "auth != null && (auth.token.admin === true || data.child('userId').val() === auth.uid || data.child('businessId').val() === auth.uid || !data.exists())"
+        },
+        "messages": {
+          ".read": "auth != null && (auth.token.admin === true || root.child('chats').child($chatId).child('meta').child('userId').val() === auth.uid || root.child('chats').child($chatId).child('meta').child('businessId').val() === auth.uid)",
+          ".write": "auth != null && (auth.token.admin === true || root.child('chats').child($chatId).child('meta').child('userId').val() === auth.uid || root.child('chats').child($chatId).child('meta').child('businessId').val() === auth.uid)",
+          ".indexOn": ["timestamp", "createdAt"]
+        }
+      }
+    },
+    "adminSupportChats": {
+      ".read": "auth != null && auth.token.admin === true",
+      "$businessUid": {
+        ".read": "auth != null && (auth.token.admin === true || auth.uid == $businessUid)",
+        ".write": "auth != null && (auth.token.admin === true || auth.uid == $businessUid)",
+        "meta": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid == $businessUid)",
+          ".write": "auth != null && (auth.token.admin === true || auth.uid == $businessUid)"
+        },
+        "messages": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid == $businessUid)",
+          ".write": "auth != null && (auth.token.admin === true || auth.uid == $businessUid)",
+          ".indexOn": ["timestamp", "createdAt"]
+        }
+      },
+      "messages": {
+        ".read": "auth != null && auth.token.admin === true",
+        "$userId": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))",
+          ".write": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))",
+          ".indexOn": ["timestamp", "createdAt"]
+        }
+      },
+      "chats": {
+        ".read": "auth != null && auth.token.admin === true",
+        "$userId": {
+          ".read": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))",
+          ".write": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))"
+        }
+      },
+      "presence": {
+        ".read": "auth != null",
+        "$uid": {
+          ".read": "auth != null",
+          ".write": "auth != null && (auth.token.admin === true || auth.uid == $uid || auth.token.phone_number == ('+' + $uid))"
+        }
+      }
+    },
+    "notifications": {
+      "$userId": {
+        ".read": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))",
+        ".write": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))"
+      }
+    },
+    "jobResponses": {
+      "$userId": {
+        ".read": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))",
+        ".write": "auth != null && (auth.token.admin === true || auth.uid == $userId || auth.token.phone_number == ('+' + $userId))"
+      }
+    }
+  }
+}

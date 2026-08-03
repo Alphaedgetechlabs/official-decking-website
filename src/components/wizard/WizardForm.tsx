@@ -1,58 +1,68 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ConfirmationResult } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
-import { PhoneAlreadyRegisteredError } from '../../errors/authErrors';
 import { useWizard } from '../../context/WizardContext';
 import { auth } from '../../firebase';
 import { cachePrefetchedBusinesses } from '../../lib/optimisticSignup';
 import { completeSignupVerification } from '../../lib/completeSignupVerification';
+import { withMinimumDelay } from '../../lib/withMinimumDelay';
 import { waitForCondition } from '../../lib/waitForCondition';
+import type { PostedNotificationsPayload, StaggerAcceptPlan } from '../../services/jobService';
 import {
   ensureRecaptchaReady,
   resetRecaptchaVerifier,
   sendLoginOtp,
 } from '../../services/authService';
 import { fetchRandomBusinesses } from '../../services/businessService';
-import { isPhoneRegistered } from '../../services/userService';
 import { useDashboardStore } from '../../stores/dashboardStore';
 import { clearSession } from '../../utils/session';
-import { sanitizePhone } from '../../utils/phone';
 import { Step1Location } from './Step1Location';
 import { Step2Timeline } from './Step2Timeline';
 import { Step3JobDescription } from './Step3JobDescription';
 import { Step4ContactDetails } from './Step4ContactDetails';
-import { Step5PhoneOtp } from './Step5PhoneOtp';
 import { Step5Matching } from './Step5Matching';
 
 interface WizardFormProps {
   onComplete: () => void;
 }
 
+type MatchingReadyResult = {
+  postedNotificationsPayload?: PostedNotificationsPayload | null;
+  staggerAcceptPlan?: StaggerAcceptPlan | null;
+};
+
 export function WizardForm({ onComplete }: WizardFormProps) {
-  const { step, formData, matchedBusinesses, setMatchedBusinesses } = useWizard();
+  const { step, formData, matchedBusinesses, setMatchedBusinesses, setStep } = useWizard();
   const confirmationRef = useRef<ConfirmationResult | null>(null);
   const otpSendFailedRef = useRef(false);
+  const [matchingPromise, setMatchingPromise] = useState<Promise<MatchingReadyResult> | undefined>();
+  const [otpRetry, setOtpRetry] = useState<{ error: string } | null>(null);
 
   useEffect(() => {
     if (step !== 4) return;
-    void fetchRandomBusinesses(3).then((businesses) => {
-      if (businesses.length === 0) return;
-      setMatchedBusinesses(businesses);
-      cachePrefetchedBusinesses(businesses);
-    });
+    // Best-effort only — businesses require auth; real match runs after OTP.
+    void fetchRandomBusinesses(3)
+      .then((businesses) => {
+        if (businesses.length === 0) return;
+        setMatchedBusinesses(businesses);
+        cachePrefetchedBusinesses(businesses);
+      })
+      .catch((err) => {
+        console.warn('Pre-auth business prefetch skipped:', err);
+      });
   }, [step, setMatchedBusinesses]);
 
   const handleSendSignupOtp = async (phoneE164: string) => {
-    const phoneId = sanitizePhone(phoneE164);
     otpSendFailedRef.current = false;
     confirmationRef.current = null;
 
-    if (await isPhoneRegistered(phoneId)) {
-      throw new PhoneAlreadyRegisteredError();
+    try {
+      const recaptcha = await ensureRecaptchaReady();
+      confirmationRef.current = await sendLoginOtp(phoneE164, recaptcha);
+    } catch (err) {
+      otpSendFailedRef.current = true;
+      throw err;
     }
-
-    const recaptcha = await ensureRecaptchaReady();
-    confirmationRef.current = await sendLoginOtp(phoneE164, recaptcha);
   };
 
   const handleResendSignupOtp = async () => {
@@ -69,24 +79,36 @@ export function WizardForm({ onComplete }: WizardFormProps) {
         throw new Error('Verification session expired. Please go back and try again.');
       }
 
-      const { businesses } = await completeSignupVerification({
+      const { businesses, postedNotificationsPayload, staggerAcceptPlan } = await completeSignupVerification({
         confirmation: confirmationRef.current,
         otp,
         formData,
         matchedBusinesses,
       });
       setMatchedBusinesses(businesses);
+      return { postedNotificationsPayload, staggerAcceptPlan };
     } catch (err) {
       console.error('Signup OTP verify error:', err);
       useDashboardStore.getState().clear();
       clearSession();
-      try {
-        await signOut(auth);
-      } catch {
-        // Ignore sign-out errors during failed verification cleanup.
-      }
+      // Don't await — signOut can hang on auth/network-request-failed and freeze the UI.
+      void signOut(auth).catch(() => {});
       throw err;
     }
+  };
+
+  const handleVerificationStart = (otp: string) => {
+    const promise = withMinimumDelay(handleVerifySignupOtp(otp));
+    setMatchingPromise(promise);
+    setStep(5);
+
+    void promise.catch(() => {
+      setMatchingPromise(undefined);
+      setStep(4);
+      setOtpRetry({
+        error: 'Invalid OTP. Please check the code and try again.',
+      });
+    });
   };
 
   return (
@@ -94,14 +116,18 @@ export function WizardForm({ onComplete }: WizardFormProps) {
       {step === 1 && <Step1Location />}
       {step === 2 && <Step2Timeline />}
       {step === 3 && <Step3JobDescription />}
-      {step === 4 && <Step4ContactDetails onSendOtp={handleSendSignupOtp} />}
-      {step === 5 && (
-        <Step5PhoneOtp
-          onVerify={handleVerifySignupOtp}
-          onResend={handleResendSignupOtp}
+      {step === 4 && (
+        <Step4ContactDetails
+          onSendOtp={handleSendSignupOtp}
+          onVerificationStart={handleVerificationStart}
+          onResendOtp={handleResendSignupOtp}
+          otpRetry={otpRetry}
+          onOtpRetryHandled={() => setOtpRetry(null)}
         />
       )}
-      {step === 6 && <Step5Matching onComplete={onComplete} />}
+      {step === 5 && (
+        <Step5Matching onComplete={onComplete} readyPromise={matchingPromise} />
+      )}
     </div>
   );
 }

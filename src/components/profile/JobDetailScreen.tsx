@@ -71,7 +71,9 @@ function ContractorCard({
         <a
           href={phone ? `tel:${phone}` : undefined}
           className={`flex items-center justify-center gap-2 rounded-xl border border-border bg-surface py-2.5 text-[13px] font-semibold text-heading transition-colors ${
-            phone ? 'hover:bg-gray-100' : 'pointer-events-none opacity-50'
+            phone
+              ? 'hover:border-brand hover:bg-brand hover:text-white'
+              : 'pointer-events-none opacity-50'
           }`}
         >
           <Phone className="h-4 w-4" strokeWidth={1.75} />

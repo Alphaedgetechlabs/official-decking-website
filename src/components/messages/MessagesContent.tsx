@@ -73,7 +73,7 @@ export function MessageCard({ message, onClick }: MessageCardProps) {
           </div>
 
           <p
-            className={`mt-1.5 line-clamp-2 text-[12px] leading-relaxed ${
+            className={`mt-1.5 truncate text-[12px] ${
               noConversation ? 'text-body/70 italic' : 'text-body'
             }`}
           >

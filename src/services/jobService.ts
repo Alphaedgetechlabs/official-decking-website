@@ -1,41 +1,487 @@
 import {
-  addDoc,
   collection,
   doc,
+  GeoPoint,
   onSnapshot,
   query,
   serverTimestamp,
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
+import { geohashForLocation } from 'geofire-common';
 import {
   getDownloadURL,
   ref,
   uploadBytes,
 } from 'firebase/storage';
-import { HARDCODED_JOB } from '../data/jobContractors';
+import { STAGGERED_ACCEPT_ENABLED } from '../config/autoAccept';
+import { currentJobType } from '../config/brandDomain';
 import { db, storage } from '../firebase';
-import type { TimelineOption, UploadedFile, WizardFormData } from '../types/wizard';
-import { fetchRandomBusinesses, type BusinessProfile } from './businessService';
+import type { StoredLocation } from '../types/location';
+import type { UploadedFile, WizardFormData } from '../types/wizard';
+import {
+  businessProvidesJobType,
+  isAcceptedBusiness,
+  TARGET_MATCH_SLOTS,
+  type JobType,
+} from '../utils/businessMatchStatus';
+import { filterRealBusinesses } from '../lib/optimisticSignup';
+import {
+  resolveMatchedBusinessesForJob,
+  type BusinessProfile,
+} from './businessService';
+import { queueJobAcceptedEmail, queueJobAcceptedSms, queueJobPostedCustomerEmail, queueJobPostedEmails, queueJobPostedSms } from './mailService';
 
 const JOBS_COLLECTION = 'jobs';
 const USERS_COLLECTION = 'users';
-const MAIL_COLLECTION = 'mail';
+const INCOMING_JOBS_SUBCOLLECTION = 'incoming_jobs';
+const ACCEPTED_JOBS_SUBCOLLECTION = 'accepted_jobs';
 
-const TIMELINE_LABELS: Record<TimelineOption, string> = {
-  asap: 'ASAP',
-  'within-2-weeks': 'Within 2 weeks',
-  'in-a-month': 'In a month',
-  comparing: 'Just comparing quotes',
-};
+export interface PostedNotificationsPayload {
+  formData: WizardFormData;
+  matchedBusinesses: BusinessProfile[];
+  options: {
+    jobId: string;
+    jobTitle: string;
+    customerLabel: string;
+    matchedBusinessIds: string[];
+  };
+}
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+export interface StaggerAcceptPlan {
+  jobId: string;
+  uid: string;
+  userId: string;
+  formData: WizardFormData;
+  jobType: JobType;
+  matchedBusinessIds: string[];
+  staggerCandidates: BusinessProfile[];
+  usersLeadDocIdForAcceptedSms: string;
+  /** Same photoUrls createJob passes into routeJobToMatchedBusinesses. */
+  photoUrls: string[];
+}
+
+/** e.g. VIC → VI-12345 */
+function generateJobId(state: string): string {
+  const letters = (state.trim().slice(0, 2) || 'JO').toUpperCase();
+  const digits = Math.floor(10_000 + Math.random() * 90_000);
+  return `${letters}-${digits}`;
+}
+
+function resolveBusinessUid(business: BusinessProfile): string {
+  return business.uid?.trim() || business.id;
+}
+
+function buildJobLocationData(locationData: StoredLocation) {
+  const { latitude, longitude } = locationData;
+
+  return {
+    placeId: locationData.placeId,
+    name: locationData.name,
+    formattedAddress: locationData.formattedAddress,
+    displayLabel: locationData.displayLabel,
+    suburb: locationData.suburb,
+    state: locationData.state,
+    stateFullName: locationData.stateFullName,
+    postcode: locationData.postcode,
+    country: locationData.country,
+    countryName: locationData.countryName,
+    latitude,
+    longitude,
+    geohash: geohashForLocation([latitude, longitude]),
+    geopoint: new GeoPoint(latitude, longitude),
+    placeTypes: locationData.placeTypes,
+  };
+}
+
+function buildBusinessSubcollectionJobPayload(params: {
+  jobId: string;
+  formData: WizardFormData;
+  uid: string;
+  userId: string;
+  matchedBusinessIds: string[];
+  businessId: string;
+  photoUrls: string[];
+  status: 'open' | 'accepted';
+  jobType: JobType;
+}): Record<string, unknown> {
+  const locationData = params.formData.locationData!;
+  const { title, category } = labelsFromJobType(params.jobType);
+
+  return {
+    jobId: params.jobId,
+    businessId: params.businessId,
+    userId: params.userId,
+    uid: params.uid,
+    type: 'job' as const,
+    title,
+    category,
+    status: params.status,
+    matchedBusinessIds: params.matchedBusinessIds,
+    location: locationData.displayLabel,
+    locationData: buildJobLocationData(locationData),
+    timeline: params.formData.timeline,
+    jobDescription: params.formData.jobDescription.trim(),
+    photoUrls: params.photoUrls,
+    photoCount: params.photoUrls.length || params.formData.photos.length,
+    fullName: params.formData.fullName.trim(),
+    email: (params.formData.email ?? '').trim().toLowerCase(),
+    phone: params.userId,
+    jobType: params.jobType,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+}
+
+/**
+ * Fan-out a global job to each matched business's incoming_jobs subcollection.
+ * When isAutoAcceptEnabled is true, also writes to accepted_jobs.
+ */
+interface RouteJobToMatchedBusinessesResult {
+  staggerCandidates: BusinessProfile[];
+  eligibleBusinessIds: string[];
+}
+
+function buildPostedNotificationsPayload(params: {
+  formData: WizardFormData;
+  matchedBusinesses: BusinessProfile[];
+  jobId: string;
+  customerLabel: string;
+}): PostedNotificationsPayload {
+  const { formData, matchedBusinesses, jobId, customerLabel } = params;
+  return {
+    formData,
+    matchedBusinesses,
+    options: {
+      jobId,
+      jobTitle: labelsFromJobType(currentJobType).title,
+      customerLabel,
+      matchedBusinessIds: matchedBusinesses.map((business) => business.id),
+    },
+  };
+}
+
+export async function queuePostedNotifications(
+  payload: PostedNotificationsPayload,
+): Promise<void> {
+  const { formData, matchedBusinesses, options } = payload;
+  await Promise.all([
+    queueJobPostedEmails(formData, matchedBusinesses, options),
+    queueJobPostedSms(formData, matchedBusinesses, options),
+    queueJobPostedCustomerEmail({
+      to: formData.email,
+      formData,
+    }).catch((err) => {
+      console.error(
+        `Failed to queue customer job-posted email for ${options.jobId}:`,
+        err,
+      );
+    }),
+  ]);
+}
+
+export async function writeAcceptedJobForBusiness(params: {
+  plan: StaggerAcceptPlan;
+  business: BusinessProfile;
+}): Promise<void> {
+  const { plan, business } = params;
+  const businessUid = resolveBusinessUid(business);
+  const incomingPayload = buildBusinessSubcollectionJobPayload({
+    jobId: plan.jobId,
+    formData: plan.formData,
+    uid: plan.uid,
+    userId: plan.userId,
+    matchedBusinessIds: plan.matchedBusinessIds,
+    businessId: business.id,
+    photoUrls: plan.photoUrls,
+    status: 'open',
+    jobType: plan.jobType,
+  });
+
+  await setDoc(
+    doc(
+      db,
+      'businesses',
+      businessUid,
+      ACCEPTED_JOBS_SUBCOLLECTION,
+      plan.jobId,
+    ),
+    {
+      ...incomingPayload,
+      status: 'accepted',
+      acceptedAt: serverTimestamp(),
+      autoAccepted: true,
+    },
+  );
+}
+
+async function routeJobToMatchedBusinesses(params: {
+  jobId: string;
+  formData: WizardFormData;
+  uid: string;
+  userId: string;
+  businesses: BusinessProfile[];
+  photoUrls?: string[];
+  jobType: JobType;
+}): Promise<RouteJobToMatchedBusinessesResult> {
+  const {
+    jobId,
+    formData,
+    uid,
+    userId,
+    businesses,
+    photoUrls = [],
+    jobType,
+  } = params;
+
+  // Only write incoming_jobs for businesses that serve this jobType.
+  const eligibleBusinesses = businesses.filter((business) =>
+    businessProvidesJobType(business, jobType),
+  );
+  const eligibleIds = eligibleBusinesses.map((b) => b.id);
+
+  if (eligibleBusinesses.length === 0) {
+    console.warn(
+      `[job-route] No businesses with matching services_provided for job ${jobId} (${jobType}).`,
+    );
+    return { staggerCandidates: [], eligibleBusinessIds: [] };
+  }
+
+  const staggerCandidates = eligibleBusinesses
+    .filter((business) => business.isAutoAcceptEnabled === true)
+    .slice(0, TARGET_MATCH_SLOTS);
+  const eligibleBusinessIds = eligibleBusinesses.map((business) => business.id);
+
+  await Promise.all(
+    eligibleBusinesses.map(async (business) => {
+      const businessUid = resolveBusinessUid(business);
+
+      try {
+        const incomingPayload = buildBusinessSubcollectionJobPayload({
+          jobId,
+          formData,
+          uid,
+          userId,
+          matchedBusinessIds: eligibleIds,
+          businessId: business.id,
+          photoUrls,
+          status: 'open',
+          jobType,
+        });
+
+        const batch = writeBatch(db);
+        batch.set(
+          doc(
+            db,
+            'businesses',
+            businessUid,
+            INCOMING_JOBS_SUBCOLLECTION,
+            jobId,
+          ),
+          incomingPayload,
+        );
+
+        if (
+          business.isAutoAcceptEnabled === true &&
+          !STAGGERED_ACCEPT_ENABLED
+        ) {
+          batch.set(
+            doc(
+              db,
+              'businesses',
+              businessUid,
+              ACCEPTED_JOBS_SUBCOLLECTION,
+              jobId,
+            ),
+            {
+              ...incomingPayload,
+              status: 'accepted',
+              acceptedAt: serverTimestamp(),
+              autoAccepted: true,
+            },
+          );
+        }
+
+        await batch.commit();
+      } catch (err) {
+        console.error(
+          `[job-route] Failed to route job ${jobId} to business ${businessUid}:`,
+          err,
+        );
+      }
+    }),
+  );
+
+  return { staggerCandidates, eligibleBusinessIds };
+}
+
+async function updateRoutedJobPhotos(params: {
+  jobId: string;
+  businesses: BusinessProfile[];
+  photoUrls: string[];
+}): Promise<void> {
+  const { jobId, businesses, photoUrls } = params;
+  if (photoUrls.length === 0 || businesses.length === 0) return;
+
+  await Promise.all(
+    businesses.map(async (business) => {
+      const businessUid = resolveBusinessUid(business);
+      const photoPatch = {
+        photoUrls,
+        photoCount: photoUrls.length,
+        updatedAt: serverTimestamp(),
+      };
+
+      try {
+        const batch = writeBatch(db);
+        batch.update(
+          doc(
+            db,
+            'businesses',
+            businessUid,
+            INCOMING_JOBS_SUBCOLLECTION,
+            jobId,
+          ),
+          photoPatch,
+        );
+
+        if (business.isAutoAcceptEnabled === true) {
+          batch.update(
+            doc(
+              db,
+              'businesses',
+              businessUid,
+              ACCEPTED_JOBS_SUBCOLLECTION,
+              jobId,
+            ),
+            photoPatch,
+          );
+        }
+
+        await batch.commit();
+      } catch (err) {
+        console.error(
+          `[job-route] Failed to update photos for job ${jobId} on business ${businessUid}:`,
+          err,
+        );
+      }
+    }),
+  );
+}
+
+export interface CreateJobResult {
+  jobId: string;
+  matchedBusinesses: BusinessProfile[];
+  staggerCandidates: BusinessProfile[];
+  staggerEligibleBusinessIds: string[];
+  photoUrls: string[];
+}
+
+/**
+ * Creates a global jobs/{jobId} document and routes it to matched businesses.
+ */
+export async function createJob(
+  formData: WizardFormData,
+  uid: string,
+  userId: string,
+  options?: {
+    fullName?: string;
+    email?: string;
+    photoUrls?: string[];
+    prefetchedBusinesses?: BusinessProfile[];
+  },
+): Promise<CreateJobResult> {
+  if (!uid.trim()) {
+    throw new Error('A verified Firebase Auth uid is required.');
+  }
+
+  if (!formData.locationData) {
+    throw new Error('A validated Australian location is required.');
+  }
+
+  const locationData = formData.locationData;
+  const fullName = (options?.fullName ?? formData.fullName).trim();
+  const email = (options?.email ?? formData.email ?? '').trim().toLowerCase();
+  const photoUrls = options?.photoUrls ?? [];
+  // Ignore placeholder/pre-auth prefetch — those are display-only and often empty.
+  const realPrefetched = filterRealBusinesses(options?.prefetchedBusinesses ?? []);
+  const nearbyBusinesses =
+    realPrefetched.length > 0
+      ? realPrefetched
+      : await resolveMatchedBusinessesForJob(locationData);
+  const dynamicJobType = currentJobType;
+  const { title, category } = labelsFromJobType(dynamicJobType);
+  const byJobType = nearbyBusinesses.filter((business) =>
+    businessProvidesJobType(business, dynamicJobType),
+  );
+  // services_provided is often unset — don't drop every match for that.
+  const matchedBusinesses =
+    byJobType.length > 0 ? byJobType : nearbyBusinesses;
+  const matchedBusinessIds = matchedBusinesses.map((business) => business.id);
+  const jobId = generateJobId(locationData.state);
+
+  try {
+    await setDoc(doc(db, JOBS_COLLECTION, jobId), {
+      jobId,
+      userId,
+      uid,
+      type: 'job' as const,
+      title,
+      category,
+      status: 'open' as const,
+      matchedBusinessIds,
+      location: locationData.displayLabel,
+      locationData: buildJobLocationData(locationData),
+      timeline: formData.timeline,
+      jobDescription: formData.jobDescription.trim(),
+      photoUrls,
+      photoCount: photoUrls.length || formData.photos.length,
+      fullName,
+      email,
+      phone: userId,
+      jobType: dynamicJobType,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.error(`[createJob] Failed to save global job ${jobId}:`, err);
+    throw err;
+  }
+
+  let staggerCandidates: BusinessProfile[] = [];
+  let staggerEligibleBusinessIds: string[] = [];
+  try {
+    const routeResult = await routeJobToMatchedBusinesses({
+      jobId,
+      formData: {
+        ...formData,
+        fullName,
+        email,
+      },
+      uid,
+      userId,
+      businesses: matchedBusinesses,
+      photoUrls,
+      jobType: dynamicJobType,
+    });
+    staggerCandidates = routeResult.staggerCandidates;
+    staggerEligibleBusinessIds = routeResult.eligibleBusinessIds;
+  } catch (err) {
+    console.error(
+      `[createJob] Global job ${jobId} saved but business routing failed:`,
+      err,
+    );
+  }
+
+  return {
+    jobId,
+    matchedBusinesses,
+    staggerCandidates,
+    staggerEligibleBusinessIds,
+    photoUrls,
+  };
 }
 
 function userJobPhotoStoragePath(
@@ -114,126 +560,71 @@ async function saveBusinessVisibleUserJobPost(
   });
 }
 
-async function queueJobNotificationEmails(
-  formData: WizardFormData,
-  jobTitle: string,
-  businesses?: BusinessProfile[],
-): Promise<void> {
-  const resolvedBusinesses = businesses ?? (await fetchRandomBusinesses(3));
-  if (resolvedBusinesses.length === 0) return;
-
-  const userName = formData.fullName.trim();
-  const area = formData.locationData!.displayLabel;
-  const time =
-    formData.timeline !== ''
-      ? TIMELINE_LABELS[formData.timeline]
-      : 'Not specified';
-  const description = formData.jobDescription.trim();
-  const mailRef = collection(db, MAIL_COLLECTION);
-
-  const businessesWithEmail = resolvedBusinesses.filter(
-    (business) => typeof business.email === 'string' && business.email.trim().length > 0,
-  );
-
-  if (businessesWithEmail.length === 0) {
-    console.warn('No businesses with a valid email address were found for job notifications.');
-    return;
-  }
-
-  await Promise.all(
-    businessesWithEmail.map((business) => {
-      const businessPersonEmail = business.email.trim().toLowerCase();
-
-      return addDoc(mailRef, {
-        to: businessPersonEmail,
-        message: {
-          subject: `New Job Request: ${jobTitle}`,
-          html: `
-      <h2>New Job Request Received</h2>
-      <p>A customer has posted a new job on the platform. Here are the details:</p>
-      <ul>
-        <li><strong>User Name:</strong> ${escapeHtml(userName)}</li>
-        <li><strong>Job Name:</strong> ${escapeHtml(jobTitle)}</li>
-        <li><strong>Area/Location:</strong> ${escapeHtml(area)}</li>
-        <li><strong>Time:</strong> ${escapeHtml(time)}</li>
-      </ul>
-      <h3>Description:</h3>
-      <p>${escapeHtml(description)}</p>
-      <br>
-      <p>Please open the Business App to accept or review this job.</p>
-    `,
-        },
-      });
-    }),
-  );
-}
-
 async function finalizeAdditionalJob(
   jobId: string,
   formData: WizardFormData,
   uid: string,
   userId: string,
   matchedBusinesses: BusinessProfile[],
-  matchedBusinessIds: string[],
-  locationData: NonNullable<WizardFormData['locationData']>,
 ): Promise<void> {
-  const locationPayload = {
-    placeId: locationData.placeId,
-    name: locationData.name,
-    formattedAddress: locationData.formattedAddress,
-    displayLabel: locationData.displayLabel,
-    suburb: locationData.suburb,
-    state: locationData.state,
-    stateFullName: locationData.stateFullName,
-    postcode: locationData.postcode,
-    country: locationData.country,
-    countryName: locationData.countryName,
-    latitude: locationData.latitude,
-    longitude: locationData.longitude,
-    placeTypes: locationData.placeTypes,
-  };
-
   try {
-    await Promise.all([
-      saveBusinessVisibleUserJobPost(formData, uid, userId, jobId, []),
-      Promise.all(
-        matchedBusinesses.map((business) =>
-          setDoc(doc(db, 'businesses', business.id, 'incomingJobs', jobId), {
-            jobId,
-            businessId: business.id,
-            userId,
-            uid,
-            type: 'job',
-            title: HARDCODED_JOB.title,
-            category: HARDCODED_JOB.category,
-            status: 'accepted',
-            matchedBusinessIds,
-            location: locationData.displayLabel,
-            locationData: locationPayload,
-            timeline: formData.timeline,
-            jobDescription: formData.jobDescription.trim(),
-            photoUrls: [],
-            photoCount: formData.photos.length,
-            fullName: formData.fullName.trim(),
-            email: formData.email.trim().toLowerCase(),
-            phone: userId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }),
-        ),
-      ),
-    ]);
+    // Business App New Jobs reads `users` — create that lead first.
+    await saveBusinessVisibleUserJobPost(formData, uid, userId, jobId, []);
 
-    void queueJobNotificationEmails(
-      formData,
-      HARDCODED_JOB.title,
-      matchedBusinesses,
-    ).catch((err) => {
-      console.error('Failed to queue job notification email:', err);
-      if (err instanceof Error) {
-        console.error(err.message);
-      }
-    });
+    if (!STAGGERED_ACCEPT_ENABLED) {
+      void queueJobPostedEmails(formData, matchedBusinesses, {
+        jobId,
+        jobTitle: labelsFromJobType(currentJobType).title,
+        customerLabel: 'A customer',
+        matchedBusinessIds: matchedBusinesses.map((business) => business.id),
+      })
+        .then(() =>
+          Promise.all(
+            matchedBusinesses.filter(isAcceptedBusiness).map((acceptor) =>
+              queueJobAcceptedEmail({
+                to: formData.email,
+                formData,
+                acceptor,
+              }),
+            ),
+          ),
+        )
+        .catch((err) => {
+          console.error(`Failed to queue job notification email for ${jobId}:`, err);
+        });
+
+      void queueJobPostedCustomerEmail({
+        to: formData.email,
+        formData,
+      }).catch((err) => {
+        console.error(
+          `Failed to queue customer job-posted email for ${jobId}:`,
+          err,
+        );
+      });
+
+      void queueJobPostedSms(formData, matchedBusinesses, {
+        jobId,
+        jobTitle: labelsFromJobType(currentJobType).title,
+        customerLabel: 'A customer',
+        matchedBusinessIds: matchedBusinesses.map((business) => business.id),
+      })
+        .then(() =>
+          Promise.all(
+            matchedBusinesses.filter(isAcceptedBusiness).map((acceptor) =>
+              queueJobAcceptedSms({
+                formData,
+                acceptor,
+                usersLeadDocId: `${userId}_${jobId}`,
+                jobId,
+              }),
+            ),
+          ),
+        )
+        .catch((err) => {
+          console.error(`Failed to queue job notification SMS for ${jobId}:`, err);
+        });
+    }
 
     if (formData.photos.length === 0) return;
 
@@ -246,19 +637,83 @@ async function finalizeAdditionalJob(
         updatedAt: serverTimestamp(),
       }),
       saveBusinessVisibleUserJobPost(formData, uid, userId, jobId, photoUrls),
-      Promise.all(
-        matchedBusinesses.map((business) =>
-          updateDoc(doc(db, 'businesses', business.id, 'incomingJobs', jobId), {
-            photoUrls,
-            photoCount: photoUrls.length,
-            updatedAt: serverTimestamp(),
-          }),
-        ),
-      ),
+      updateRoutedJobPhotos({ jobId, businesses: matchedBusinesses, photoUrls }),
     ]);
   } catch (err) {
     console.error(`Failed to finalize additional job ${jobId}:`, err);
   }
+}
+
+export interface SaveAdditionalJobResult {
+  jobId: string;
+  matchedBusinesses: BusinessProfile[];
+  staggerCandidates: BusinessProfile[];
+  staggerAcceptPlan: StaggerAcceptPlan;
+  postedNotificationsPayload: PostedNotificationsPayload;
+}
+
+/**
+ * Saves an additional job for an existing user (Firestore + fan-out + emails).
+ * Does not send the RTDB welcome message — that is only for first-time signup.
+ *
+ * Callers for returning users must pass profile `fullName` / `email` from the
+ * Firestore user document — never UI form contact overrides.
+ */
+export async function saveAdditionalJob(
+  formData: WizardFormData,
+  uid: string,
+  userId: string,
+  options?: { prefetchedBusinesses?: BusinessProfile[] },
+): Promise<SaveAdditionalJobResult> {
+  const fullName = formData.fullName.trim();
+  const email = (formData.email ?? '').trim().toLowerCase();
+
+  const {
+    jobId,
+    matchedBusinesses,
+    staggerCandidates,
+    staggerEligibleBusinessIds,
+    photoUrls,
+  } = await createJob(formData, uid, userId, {
+    fullName,
+    email,
+    prefetchedBusinesses: options?.prefetchedBusinesses,
+  });
+
+  await finalizeAdditionalJob(
+    jobId,
+    formData,
+    uid,
+    userId,
+    matchedBusinesses,
+  );
+
+  return {
+    jobId,
+    matchedBusinesses,
+    staggerCandidates,
+    staggerAcceptPlan: {
+      jobId,
+      uid,
+      userId,
+      formData: {
+        ...formData,
+        fullName,
+        email,
+      },
+      jobType: currentJobType,
+      matchedBusinessIds: staggerEligibleBusinessIds,
+      staggerCandidates,
+      usersLeadDocIdForAcceptedSms: `${userId}_${jobId}`,
+      photoUrls,
+    },
+    postedNotificationsPayload: buildPostedNotificationsPayload({
+      formData,
+      matchedBusinesses,
+      jobId,
+      customerLabel: 'A customer',
+    }),
+  };
 }
 
 /**
@@ -269,85 +724,17 @@ export function queueAdditionalJob(
   formData: WizardFormData,
   uid: string,
   userId: string,
-  preselectedBusinesses?: BusinessProfile[],
+  onSuccess?: (result: SaveAdditionalJobResult) => void,
 ): void {
-  if (!uid.trim()) {
-    console.error('A verified Firebase Auth uid is required.');
-    return;
-  }
-
-  if (!formData.locationData) {
-    console.error('A validated Australian location is required.');
-    return;
-  }
-
-  void runAdditionalJobSave(formData, uid, userId, preselectedBusinesses);
-}
-
-async function runAdditionalJobSave(
-  formData: WizardFormData,
-  uid: string,
-  userId: string,
-  preselectedBusinesses?: BusinessProfile[],
-): Promise<void> {
-  const locationData = formData.locationData!;
-
-  try {
-    const matchedBusinesses =
-      preselectedBusinesses && preselectedBusinesses.length > 0
-        ? preselectedBusinesses
-        : await fetchRandomBusinesses(3);
-    const matchedBusinessIds = matchedBusinesses.map((business) => business.id);
-
-    const jobRef = doc(collection(db, JOBS_COLLECTION));
-
-    await setDoc(jobRef, {
-      userId,
-      uid,
-      type: 'job' as const,
-      title: HARDCODED_JOB.title,
-      category: HARDCODED_JOB.category,
-      status: 'accepted' as const,
-      matchedBusinessIds,
-      location: locationData.displayLabel,
-      locationData: {
-        placeId: locationData.placeId,
-        name: locationData.name,
-        formattedAddress: locationData.formattedAddress,
-        displayLabel: locationData.displayLabel,
-        suburb: locationData.suburb,
-        state: locationData.state,
-        stateFullName: locationData.stateFullName,
-        postcode: locationData.postcode,
-        country: locationData.country,
-        countryName: locationData.countryName,
-        latitude: locationData.latitude,
-        longitude: locationData.longitude,
-        placeTypes: locationData.placeTypes,
+  void saveAdditionalJob(formData, uid, userId)
+    .then((result) => {
+      onSuccess?.(result);
+    })
+    .catch(
+      (err) => {
+        console.error('Failed to save additional job:', err);
       },
-      timeline: formData.timeline,
-      jobDescription: formData.jobDescription.trim(),
-      photoUrls: [] as string[],
-      photoCount: formData.photos.length,
-      fullName: formData.fullName.trim(),
-      email: formData.email.trim().toLowerCase(),
-      phone: userId,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    await finalizeAdditionalJob(
-      jobRef.id,
-      formData,
-      uid,
-      userId,
-      matchedBusinesses,
-      matchedBusinessIds,
-      locationData,
     );
-  } catch (err) {
-    console.error('Failed to save additional job:', err);
-  }
 }
 
 function formatJobCreatedDate(
@@ -386,6 +773,7 @@ export interface UserJobListItem {
   id: string;
   title: string;
   category: string;
+  jobType: JobType;
   createdDate: string;
   status: string;
   location: string;
@@ -394,17 +782,59 @@ export interface UserJobListItem {
   matchedBusinessIds: string[];
 }
 
+const JOB_TYPE_LABELS: Record<
+  JobType,
+  {
+    title: string;
+    category: string;
+  }
+> = {
+  fencing: {
+    title: 'Fence Installation',
+    category: 'Fence',
+  },
+  'retaining-wall': {
+    title: 'Retaining Wall Installation',
+    category: 'Retaining Wall',
+  },
+  decking: {
+    title: 'Deck Installation',
+    category: 'Decking',
+  },
+  landscaping: {
+    title: 'Landscaping Project',
+    category: 'Landscaping',
+  },
+};
+
+export function labelsFromJobType(jobType: JobType): {
+  title: string;
+  category: string;
+} {
+  return JOB_TYPE_LABELS[jobType];
+}
+
+function resolveJobType(value: unknown): JobType {
+  return typeof value === 'string' &&
+    Object.prototype.hasOwnProperty.call(JOB_TYPE_LABELS, value)
+    ? (value as JobType)
+    : 'fencing';
+}
+
 function mapJobDoc(
   id: string,
   data: Record<string, unknown>,
 ): UserJobListItem {
   const createdAt = data.createdAt as { toDate?: () => Date } | undefined;
   const createdAtMs = createdAt?.toDate?.()?.getTime() ?? 0;
+  const jobType = resolveJobType(data.jobType);
+  const { title, category } = labelsFromJobType(jobType);
 
   return {
     id,
-    title: typeof data.title === 'string' ? data.title : HARDCODED_JOB.title,
-    category: typeof data.category === 'string' ? data.category : HARDCODED_JOB.category,
+    title,
+    category,
+    jobType,
     createdDate: formatJobCreatedDate(createdAt),
     status: formatJobStatus(
       typeof data.status === 'string' ? data.status : 'pending',
@@ -424,6 +854,7 @@ export function buildSignupJobFromUser(
     location?: string;
     jobDescription?: string;
     matchedBusinessIds?: string[];
+    jobType?: string;
     createdAt?: { toDate?: () => Date };
   },
 ): UserJobListItem | null {
@@ -433,11 +864,14 @@ export function buildSignupJobFromUser(
 
   const createdAt = user.createdAt;
   const createdAtMs = createdAt?.toDate?.()?.getTime() ?? 0;
+  const jobType = resolveJobType(user.jobType);
+  const { title, category } = labelsFromJobType(jobType);
 
   return {
     id: 'signup-job',
-    title: HARDCODED_JOB.title,
-    category: HARDCODED_JOB.category,
+    title,
+    category,
+    jobType,
     createdDate: formatJobCreatedDate(createdAt),
     status: 'Accepted',
     location: user.location ?? '',
@@ -453,8 +887,66 @@ export function mergeUserJobs(
   signupJob: UserJobListItem | null,
   firestoreJobs: UserJobListItem[],
 ): UserJobListItem[] {
-  const merged = signupJob ? [signupJob, ...firestoreJobs] : firestoreJobs;
-  return merged.sort((a, b) => b.createdAtMs - a.createdAtMs);
+  // Once real jobs/{id} docs exist, drop the synthetic signup card.
+  const raw =
+    firestoreJobs.length > 0
+      ? firestoreJobs
+      : signupJob
+        ? [signupJob]
+        : [];
+
+  return dedupeUserJobs(raw);
+}
+
+/**
+ * Collapses accidental duplicates (OTP/retry double-writes, uid+userId
+ * overlaps with different doc ids that are the same job content).
+ */
+export function dedupeUserJobs(jobs: UserJobListItem[]): UserJobListItem[] {
+  const byDocId = new Map<string, UserJobListItem>();
+  for (const job of jobs) {
+    byDocId.set(job.id, job);
+  }
+
+  const sorted = [...byDocId.values()].sort(
+    (a, b) => b.createdAtMs - a.createdAtMs,
+  );
+  const result: UserJobListItem[] = [];
+
+  for (const job of sorted) {
+    if (job.id === 'signup-job' && sorted.some((j) => j.id !== 'signup-job')) {
+      continue;
+    }
+
+    const duplicate = result.find(
+      (existing) =>
+        existing.jobType === job.jobType &&
+        existing.location === job.location &&
+        existing.description === job.description &&
+        Math.abs(existing.createdAtMs - job.createdAtMs) < 5 * 60 * 1000,
+    );
+
+    if (!duplicate) {
+      result.push(job);
+    }
+  }
+
+  return result;
+}
+
+/** Home feed: at most one latest card per supported jobType. */
+export function latestJobsByType(jobs: UserJobListItem[]): UserJobListItem[] {
+  const latestByType = new Map<JobType, UserJobListItem>();
+
+  for (const job of [...jobs].sort((a, b) => b.createdAtMs - a.createdAtMs)) {
+    if (!latestByType.has(job.jobType)) {
+      latestByType.set(job.jobType, job);
+    }
+  }
+
+  return [...latestByType.values()].sort(
+    (a, b) => b.createdAtMs - a.createdAtMs,
+  );
 }
 
 export function subscribeUserJobs(
@@ -475,19 +967,35 @@ export function subscribeUserJobs(
   const emit = () => {
     const byId = new Map<string, UserJobListItem>();
     for (const job of [...uidJobs, ...userIdJobs]) {
+      // Prefer canonical jobId field when present (same job, different doc paths).
       byId.set(job.id, job);
     }
     onChange(
-      [...byId.values()].sort((a, b) => b.createdAtMs - a.createdAtMs),
+      dedupeUserJobs(
+        [...byId.values()].sort((a, b) => b.createdAtMs - a.createdAtMs),
+      ),
     );
+  };
+
+  const mapSnapDoc = (docSnap: { id: string; data: () => Record<string, unknown> }) => {
+    const data = docSnap.data();
+    // Skip non-job docs that may share uid/userId queries accidentally.
+    if (data.type != null && data.type !== 'job') {
+      return null;
+    }
+    const mapped = mapJobDoc(docSnap.id, data);
+    if (typeof data.jobId === 'string' && data.jobId.trim()) {
+      return { ...mapped, id: data.jobId.trim() };
+    }
+    return mapped;
   };
 
   const unsubUid = onSnapshot(
     byUidQuery,
     (snapshot) => {
-      uidJobs = snapshot.docs.map((docSnap) =>
-        mapJobDoc(docSnap.id, docSnap.data()),
-      );
+      uidJobs = snapshot.docs
+        .map((docSnap) => mapSnapDoc(docSnap))
+        .filter((job): job is UserJobListItem => job != null);
       emit();
     },
     (error) => {
@@ -503,9 +1011,9 @@ export function subscribeUserJobs(
   const unsubUserId = onSnapshot(
     byUserIdQuery,
     (snapshot) => {
-      userIdJobs = snapshot.docs.map((docSnap) =>
-        mapJobDoc(docSnap.id, docSnap.data()),
-      );
+      userIdJobs = snapshot.docs
+        .map((docSnap) => mapSnapDoc(docSnap))
+        .filter((job): job is UserJobListItem => job != null);
       emit();
     },
     (error) => {

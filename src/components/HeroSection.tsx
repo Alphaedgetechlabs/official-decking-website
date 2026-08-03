@@ -2,6 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Star, Users } from "lucide-react";
 import heroDeck from "@/assets/hero-deck.webp";
 import fastWhiteIcon from "@/assets/fast-white-icon.webp";
+import {
+  tradeLabel,
+  tradeLabelTitle,
+  tradeNounPlural,
+} from "@/config/brandDomain";
 
 const QUOTE_URL = "/quote";
 
@@ -12,11 +17,10 @@ const HeroSection = () => {
 
   return (
     <section className="relative min-h-screen lg:min-h-screen flex items-start lg:items-center overflow-x-hidden overflow-y-visible">
-      {/* Background */}
       <div className="absolute inset-0">
         <img
           src={heroDeck}
-          alt="Professional deck installation"
+          alt={`Professional ${tradeLabel} installation`}
           className="w-full h-full object-cover"
           fetchPriority="high"
           decoding="sync"
@@ -27,36 +31,36 @@ const HeroSection = () => {
         <div className="absolute inset-0 hero-gradient opacity-85"></div>
       </div>
 
-      {/* Content */}
       <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 lg:py-16 pt-20 sm:pt-24 lg:pt-20 pb-16 sm:pb-20 lg:pb-16">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 items-start lg:items-center">
-          {/* Left Column - Main Content */}
           <div className="text-white space-y-4 sm:space-y-6 lg:space-y-8">
-            {/* Trust Badge */}
             <div className="flex items-start space-x-2 text-accent">
               <Star className="w-4 h-4 sm:w-5 sm:h-5 fill-current flex-shrink-0 mt-0.5" />
-              <span className="text-xs sm:text-sm font-medium leading-snug">Australia's #1 Decking Quote Platform — Quotes Within Minutes.</span>
+              <span className="text-xs sm:text-sm font-medium leading-snug">
+                Australia&apos;s #1 {tradeLabelTitle} Quote Platform — Quotes Within
+                Minutes.
+              </span>
             </div>
 
-            {/* Main Headline */}
             <div className="space-y-2 sm:space-y-3 lg:space-y-4">
               <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold leading-tight">
-                Get Free <span className="block text-accent">Decking Quotes</span>
+                Get Free{" "}
+                <span className="block text-accent">{tradeLabelTitle} Quotes</span>
                 in Minutes
               </h1>
               <p className="text-sm sm:text-base md:text-lg lg:text-xl text-gray-100 max-w-lg">
-                Compare Prices & Save on Your Deck Installation — only verified, top-rated decking contractors quote on your job.
+                Compare Prices &amp; Save on Your {tradeLabelTitle} Installation —
+                only verified, top-rated {tradeLabel} contractors quote on your job.
               </p>
             </div>
 
-            {/* Quote Form */}
             <div className="bg-white/10 backdrop-blur-sm rounded-xl sm:rounded-2xl p-3 sm:p-4 lg:p-6 shadow-strong border border-white/20">
               <h3 className="text-sm sm:text-base lg:text-lg font-semibold mb-2 sm:mb-3 lg:mb-4 text-white">Start Your Free Quote</h3>
               <div className="space-y-3 sm:space-y-4">
-                <Button 
-                  variant="hero" 
-                  size="xl" 
-                  className="w-full text-xs sm:text-sm lg:text-base py-3 sm:py-4" 
+                <Button
+                  variant="hero"
+                  size="xl"
+                  className="w-full text-xs sm:text-sm lg:text-base py-3 sm:py-4"
                   onClick={handleQuoteClick}
                 >
                   Click to Get 3 Free Quotes in Minutes
@@ -67,7 +71,6 @@ const HeroSection = () => {
               </p>
             </div>
 
-            {/* Social Proof */}
             <div className="grid grid-cols-3 gap-2 sm:gap-4 lg:gap-6 pt-2 sm:pt-4">
               <div className="text-center">
                 <div className="text-base sm:text-lg lg:text-2xl font-bold text-accent">10,000+</div>
@@ -79,14 +82,14 @@ const HeroSection = () => {
               </div>
               <div className="text-center">
                 <div className="text-base sm:text-lg lg:text-2xl font-bold text-accent">8,500+</div>
-                <div className="text-[10px] sm:text-xs lg:text-sm text-gray-200">Decks Quoted</div>
+                <div className="text-[10px] sm:text-xs lg:text-sm text-gray-200">
+                  {tradeNounPlural} Quoted
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Right Column - Features */}
           <div className="space-y-3 sm:space-y-4 lg:space-y-6 mt-4 lg:mt-0">
-            {/* Feature Cards */}
             <div className="grid gap-3 sm:gap-4">
               <div className="card-gradient rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-soft border border-white/20">
                 <div className="flex items-start space-x-3 sm:space-x-4">
@@ -95,7 +98,11 @@ const HeroSection = () => {
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="font-semibold text-foreground mb-1 sm:mb-2 text-sm sm:text-base">Trusted by Homeowners Across Australia</h3>
-                    <p className="text-muted-foreground text-xs sm:text-sm">Homeowners across Australia count on us for their decking solutions at competitive and affordable prices, without compromising on quality.</p>
+                    <p className="text-muted-foreground text-xs sm:text-sm">
+                      Homeowners across Australia count on us for their {tradeLabel}{" "}
+                      solutions at competitive and affordable prices, without
+                      compromising on quality.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -106,8 +113,13 @@ const HeroSection = () => {
                     <Star className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-foreground mb-1 sm:mb-2 text-sm sm:text-base">Australia's Most Reliable Decking Professionals</h3>
-                    <p className="text-muted-foreground text-xs sm:text-sm">Quotes are sourced only from screened, reviewed, and highly-rated deck builders in your suburb.</p>
+                    <h3 className="font-semibold text-foreground mb-1 sm:mb-2 text-sm sm:text-base">
+                      Australia&apos;s Most Reliable {tradeLabelTitle} Professionals
+                    </h3>
+                    <p className="text-muted-foreground text-xs sm:text-sm">
+                      Quotes are sourced only from screened, reviewed, and
+                      highly-rated {tradeLabel} contractors in your suburb.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -119,7 +131,10 @@ const HeroSection = () => {
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="font-semibold text-foreground mb-1 sm:mb-2 text-sm sm:text-base">Fast Australia-Wide Local Area Quotes</h3>
-                    <p className="text-muted-foreground text-xs sm:text-sm">Get decking quotes from local contractors in minutes — no matter where you are in Australia.</p>
+                    <p className="text-muted-foreground text-xs sm:text-sm">
+                      Get {tradeLabel} quotes from local contractors in minutes —
+                      no matter where you are in Australia.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -128,7 +143,6 @@ const HeroSection = () => {
         </div>
       </div>
 
-      {/* Bottom Wave */}
       <div className="absolute bottom-0 left-0 right-0">
         <svg className="w-full h-8 sm:h-12 text-background" preserveAspectRatio="none" viewBox="0 0 1200 120" xmlns="http://www.w3.org/2000/svg">
           <path d="M0,0V46.29c47.79,22.2,103.59,32.17,158,28,70.36-5.37,136.33-33.31,206.8-37.5C438.64,32.43,512.34,53.67,583,72.05c69.27,18,138.3,24.88,209.4,13.08,36.15-6,69.85-17.84,104.45-29.34C989.49,25,1113-14.29,1200,52.47V0Z" opacity=".25" fill="currentColor" />

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { FileText, ImageIcon, Upload, X } from 'lucide-react';
+import { tradeLabel } from '../../config/brandDomain';
 import { useWizard } from '../../context/WizardContext';
 import { MAX_PHOTOS, type UploadedFile } from '../../types/wizard';
 import { NavButtons } from './NavButtons';
@@ -55,7 +56,7 @@ export function Step3JobDescription() {
             : 'text-2xl sm:text-[1.65rem]'
         }`}
       >
-        {variant === 'addJob' ? 'Describe your fence job' : 'Describe your decking job'}
+        Describe your {tradeLabel} job
       </h1>
       <p className={`mt-2 text-sm text-body ${variant === 'addJob' ? 'text-center' : ''}`}>
         The more detail you add, the more accurate your quotes will be.
@@ -74,16 +75,12 @@ export function Step3JobDescription() {
           rows={5}
           value={formData.jobDescription}
           onChange={(e) => updateFormData({ jobDescription: e.target.value })}
-          placeholder={
-            variant === 'addJob'
-              ? 'Describe your fence project...'
-              : 'Describe your decking project...'
-          }
+          placeholder={`Describe your ${tradeLabel} project...`}
           className="w-full resize-none rounded-lg border border-border px-4 py-4 text-sm text-heading placeholder:text-gray-400 outline-none transition-shadow focus:border-brand focus:ring-2 focus:ring-brand/30"
         />
         <p className="mt-2 text-xs text-gray-400">
-          Example: &apos;Build 20sqm timber deck in backyard. Standard height.
-          Include stairs.&apos;
+          Example: &apos;Need a new {tradeLabel} installed along the side boundary.
+          Approx 12m. Include gate.&apos;
         </p>
       </div>
 

@@ -1,12 +1,19 @@
 import { Fence } from 'lucide-react';
-import { HARDCODED_JOB } from '../../data/jobContractors';
-import type { UserJobListItem } from '../../services/jobService';
+import { currentJobType, tradeLabel } from '../../config/brandDomain';
+import { useJobAcceptedBusinesses } from '../../hooks/useJobAcceptedBusinesses';
+import {
+  labelsFromJobType,
+  type UserJobListItem,
+} from '../../services/jobService';
 import type { BusinessProfile } from '../../services/businessService';
-import { RandomBusinessProfiles } from './RandomBusinessProfiles';
+import { TARGET_MATCH_SLOTS } from '../../utils/businessMatchStatus';
+import { BusinessProfileCard } from './BusinessProfileCard';
+import { TradieRowSkeleton } from './TradieRowSkeleton';
 
 interface JobPostCardProps {
   job: UserJobListItem;
-  businesses: BusinessProfile[];
+  /** Kept for call-site compatibility; slots use jobs/{id}.acceptedBy instead. */
+  businesses?: BusinessProfile[];
   businessesLoading?: boolean;
   businessesError?: string | null;
   onMessageContractor?: (businessId: string) => void;
@@ -27,11 +34,16 @@ function statusClass(status: string) {
 
 export function JobPostCard({
   job,
-  businesses,
-  businessesLoading,
-  businessesError,
   onMessageContractor,
 }: JobPostCardProps) {
+  const {
+    businesses: acceptedForJob,
+    skeletonCount,
+    loading,
+  } = useJobAcceptedBusinesses(job.id);
+
+  const skeletonSlots = loading ? TARGET_MATCH_SLOTS : skeletonCount;
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
       <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-4">
@@ -58,13 +70,27 @@ export function JobPostCard({
         </span>
       </div>
 
-      <RandomBusinessProfiles
-        businesses={businesses}
-        loading={businessesLoading}
-        error={businessesError}
-        onMessage={onMessageContractor}
-        variant="row"
-      />
+      {loading ? (
+        <div>
+          {Array.from({ length: skeletonSlots }).map((_, i) => (
+            <TradieRowSkeleton key={`loading-slot-${i}`} />
+          ))}
+        </div>
+      ) : (
+        <div>
+          {acceptedForJob.map((business) => (
+            <BusinessProfileCard
+              key={business.id}
+              business={business}
+              onMessage={onMessageContractor}
+              variant="row"
+            />
+          ))}
+          {Array.from({ length: skeletonSlots }).map((_, i) => (
+            <TradieRowSkeleton key={`pending-slot-${i}`} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -105,6 +131,7 @@ export function JobPostsList({
   }
 
   if (jobs.length === 0) {
+    const emptyLabels = labelsFromJobType(currentJobType);
     return (
       <div className="overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
         <div className="flex items-center gap-3 px-4 py-4">
@@ -113,10 +140,10 @@ export function JobPostsList({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[14px] font-bold leading-tight text-heading">
-              {HARDCODED_JOB.title}
+              {emptyLabels.title}
             </p>
             <p className="mt-1 text-[12px] leading-none text-body">
-              Tap + to post your first fencing job
+              Tap + to post your first {tradeLabel} job
             </p>
           </div>
         </div>

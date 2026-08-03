@@ -1,8 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AustraliaLocationAutocomplete } from "@/components/wizard/AustraliaLocationAutocomplete";
 import { useGoogleMaps } from "@/hooks/useGoogleMaps";
 import type { StoredLocation } from "@/types/location";
 import { isLocationValidated, suburbToStoredLocation } from "@/utils/australianPlace";
+import { sanitizeQueryValue } from "@/utils/sanitizeQueryValue";
 import { AUSTRALIAN_SUBURBS, Suburb } from "@/data/formData";
 import { MapPin, Clock, ArrowRight, Zap } from "lucide-react";
 
@@ -94,9 +96,34 @@ const LocationStep = ({ trade, onNext }: LocationStepProps) => {
   const { isLoaded, error: mapsError } = useGoogleMaps();
   const useGooglePlaces = isLoaded && !mapsError;
 
-  const [query, setQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [query, setQuery] = useState(() =>
+    sanitizeQueryValue(searchParams.get("location") ?? ""),
+  );
   const [locationData, setLocationData] = useState<StoredLocation | null>(null);
   const [staticSuburb, setStaticSuburb] = useState<Suburb | null>(null);
+
+  // URL → input (deep link / refresh / new tab)
+  useEffect(() => {
+    const locationParam = sanitizeQueryValue(searchParams.get("location") ?? "");
+    setQuery((prev) => (prev === locationParam ? prev : locationParam));
+  }, [searchParams]);
+
+  // input → URL
+  useEffect(() => {
+    const locationParam = sanitizeQueryValue(searchParams.get("location") ?? "");
+    if (query === locationParam) return;
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (query) next.set("location", query);
+        else next.delete("location");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [query, searchParams, setSearchParams]);
 
   const tradeLower = trade.toLowerCase();
 

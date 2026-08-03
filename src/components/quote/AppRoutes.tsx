@@ -23,10 +23,16 @@ export function AppRoute() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!auth.currentUser);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       setIsAuthenticated(!!user);
       setAuthReady(true);
     });
+    // If auth persistence never emits, don't spin forever.
+    const timeoutId = window.setTimeout(() => setAuthReady(true), 4000);
+    return () => {
+      unsubscribe();
+      window.clearTimeout(timeoutId);
+    };
   }, []);
 
   if (!authReady) {
@@ -62,10 +68,15 @@ export function LoginRoute() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!auth.currentUser);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       setIsAuthenticated(!!user);
       setAuthReady(true);
     });
+    const timeoutId = window.setTimeout(() => setAuthReady(true), 4000);
+    return () => {
+      unsubscribe();
+      window.clearTimeout(timeoutId);
+    };
   }, []);
 
   if (!authReady) {

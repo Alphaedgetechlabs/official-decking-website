@@ -13,8 +13,13 @@ import type { UserPresence } from '../types/chat';
 import {
   subscribeToPresence,
 } from '../services/rtdb/presenceService';
-import type { RtdbChatMessage } from '../types/chat';
+import type { PendingMediaUpload, RtdbChatMessage } from '../types/chat';
 import { MESSAGES_PAGE_SIZE } from '../types/chat';
+import {
+  getMediaPreviewLabel,
+  getMediaTypeFromFile,
+  uploadChatMedia,
+} from '../services/rtdb/chatMediaService';
 
 type Unsubscribe = () => void;
 
@@ -33,6 +38,7 @@ interface ChatStoreState {
   draft: string;
   error: string | null;
   businessPresence: UserPresence;
+  pendingUploads: PendingMediaUpload[];
   unsubscribers: Unsubscribe[];
 }
 
@@ -41,6 +47,7 @@ interface ChatStoreActions {
   closeChat: () => void;
   loadMoreMessages: () => Promise<void>;
   sendChatMessage: (text: string) => Promise<void>;
+  sendChatMedia: (file: File) => Promise<void>;
   setDraft: (draft: string) => void;
   cleanup: () => void;
 }
@@ -79,6 +86,7 @@ export const useChatStore = create<ChatStoreState & ChatStoreActions>(
     draft: '',
     error: null,
     businessPresence: initialPresence,
+    pendingUploads: [],
     unsubscribers: [],
 
     setDraft: (draft) => set({ draft }),
@@ -101,6 +109,7 @@ export const useChatStore = create<ChatStoreState & ChatStoreActions>(
         draft: '',
         error: null,
         businessPresence: initialPresence,
+        pendingUploads: [],
         unsubscribers: [],
       });
     },
@@ -238,6 +247,81 @@ export const useChatStore = create<ChatStoreState & ChatStoreActions>(
       } catch (err) {
         console.error('Failed to send message:', err);
         set({ sending: false, draft: trimmed });
+      }
+    },
+
+    sendChatMedia: async (file) => {
+      const { chatId, userId, sending, businessPresence, pendingUploads } = get();
+      if (!chatId || !userId || sending) return;
+
+      const mediaType = getMediaTypeFromFile(file);
+      if (!mediaType) return;
+
+      const uploadId = `upload-${Date.now()}`;
+      const previewUrl =
+        mediaType === 'image' || mediaType === 'video'
+          ? URL.createObjectURL(file)
+          : undefined;
+
+      const pendingUpload: PendingMediaUpload = {
+        id: uploadId,
+        mediaType,
+        progress: 0,
+        previewUrl,
+      };
+
+      set({
+        sending: true,
+        pendingUploads: [...pendingUploads, pendingUpload],
+      });
+
+      try {
+        const uploaded = await uploadChatMedia(
+          `chats/${chatId}/media`,
+          file,
+          mediaType,
+          (progress) => {
+            set((state) => ({
+              pendingUploads: state.pendingUploads.map((upload) =>
+                upload.id === uploadId ? { ...upload, progress } : upload,
+              ),
+            }));
+          },
+        );
+
+        const status = businessPresence.online ? 'delivered' : 'sent';
+        const message = await sendMessage(
+          chatId,
+          userId,
+          'user',
+          getMediaPreviewLabel(uploaded.mediaType, uploaded.fileName),
+          status,
+          {
+            mediaUrl: uploaded.mediaUrl,
+            mediaType: uploaded.mediaType,
+            thumbnailUrl: uploaded.thumbnailUrl,
+            fileName: uploaded.fileName,
+          },
+        );
+
+        set((state) => ({
+          messages: mergeMessages(state.messages, [message], 'upsert'),
+          newestKey: message.id,
+          sending: false,
+          pendingUploads: state.pendingUploads.filter(
+            (upload) => upload.id !== uploadId,
+          ),
+        }));
+      } catch (err) {
+        console.error('Failed to send media:', err);
+        set((state) => ({
+          sending: false,
+          pendingUploads: state.pendingUploads.filter(
+            (upload) => upload.id !== uploadId,
+          ),
+        }));
+      } finally {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
       }
     },
 
