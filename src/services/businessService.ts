@@ -114,38 +114,141 @@ export async function fetchBusinessesBySuburb(
   return filterBusinessesByState(dedupeBusinessProfiles(collected), state);
 }
 
+const EXPANSION_RADII_METERS = [50_000, 100_000, 200_000] as const;
+const EXPANSION_MATCH_CAP = 3;
+
+/** Reject null-island / missing coords that would poison Haversine matching. */
+function isValidCoordinates(latitude: number, longitude: number): boolean {
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    !(latitude === 0 && longitude === 0)
+  );
+}
+
+function distanceFromJobMeters(
+  jobCoordinates: [number, number],
+  serviceArea: { latitude: number; longitude: number },
+): number {
+  return (
+    distanceBetween(jobCoordinates, [
+      serviceArea.latitude,
+      serviceArea.longitude,
+    ]) * 1000
+  );
+}
+
+function logMatchStep(
+  step: string,
+  matches: { business: BusinessProfile; distanceInMeters: number }[],
+): void {
+  console.log(
+    `[business-match] ${step}: ${matches.length} match(es)`,
+    matches.map(({ business, distanceInMeters }) => ({
+      id: business.id,
+      businessName: business.businessName,
+      distanceKm: Math.round((distanceInMeters / 1000) * 10) / 10,
+    })),
+  );
+}
+
 /**
  * Resolves matched businesses for job routing via each business's custom radius.
  * A business only qualifies when the job is inside `business.serviceArea`.
+ * If none cover the job, expands to nearest businesses within 50 → 100 → 200 km
+ * (ignoring their radius). Never falls back to random.
  */
 export async function resolveMatchedBusinessesForJob(
   locationData: StoredLocation,
 ): Promise<BusinessProfile[]> {
-  const businessesRef = collection(db, BUSINESSES_COLLECTION);
-  const snap = await getDocs(businessesRef);
-  const businesses = snap.docs.map(mapDoc);
   const jobCoordinates: [number, number] = [
     locationData.latitude,
     locationData.longitude,
   ];
 
-  const matched = businesses.filter((business) => {
+  if (!isValidCoordinates(jobCoordinates[0], jobCoordinates[1])) {
+    console.error(
+      '[business-match] Invalid job coordinates; skipping match and fallback:',
+      {
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+      },
+    );
+    return [];
+  }
+
+  const businessesRef = collection(db, BUSINESSES_COLLECTION);
+  const snap = await getDocs(businessesRef);
+  const businesses = snap.docs.map(mapDoc);
+
+  // Step 1: job inside business.serviceArea (unchanged coverage rule).
+  const step1Matches: { business: BusinessProfile; distanceInMeters: number }[] =
+    [];
+  for (const business of businesses) {
     const serviceArea = parseBusinessServiceArea(business.serviceArea);
-    if (!serviceArea) return false;
+    if (!serviceArea) continue;
+    if (!isValidCoordinates(serviceArea.latitude, serviceArea.longitude)) {
+      continue;
+    }
 
-    const distanceInMeters =
-      distanceBetween(jobCoordinates, [
-        serviceArea.latitude,
-        serviceArea.longitude,
-      ]) * 1000;
+    const distanceInMeters = distanceFromJobMeters(jobCoordinates, serviceArea);
+    if (distanceInMeters <= serviceArea.radiusMeters) {
+      step1Matches.push({ business, distanceInMeters });
+    }
+  }
 
-    return distanceInMeters <= serviceArea.radiusMeters;
-  });
-
-  if (matched.length > 0) return matched;
+  if (step1Matches.length > 0) {
+    logMatchStep('Step 1 (serviceArea covers job)', step1Matches);
+    return step1Matches.map(({ business }) => business);
+  }
 
   console.warn(
-    '[business-match] No businesses matched custom service radius:',
+    '[business-match] No businesses matched custom service radius; trying expansion:',
+    {
+      latitude: locationData.latitude,
+      longitude: locationData.longitude,
+    },
+  );
+
+  // Steps 2–4: nearest businesses within expanding rings (ignore their radius).
+  for (const radiusMeters of EXPANSION_RADII_METERS) {
+    const radiusKm = radiusMeters / 1000;
+    const withinRing: { business: BusinessProfile; distanceInMeters: number }[] =
+      [];
+
+    for (const business of businesses) {
+      const serviceArea = parseBusinessServiceArea(business.serviceArea);
+      if (!serviceArea) continue;
+      if (!isValidCoordinates(serviceArea.latitude, serviceArea.longitude)) {
+        continue;
+      }
+
+      const distanceInMeters = distanceFromJobMeters(
+        jobCoordinates,
+        serviceArea,
+      );
+      if (distanceInMeters <= radiusMeters) {
+        withinRing.push({ business, distanceInMeters });
+      }
+    }
+
+    withinRing.sort((a, b) => a.distanceInMeters - b.distanceInMeters);
+    const capped = withinRing.slice(0, EXPANSION_MATCH_CAP);
+
+    if (capped.length > 0) {
+      const stepLabel =
+        radiusKm === 50
+          ? 'Step 2 (within 50 km)'
+          : radiusKm === 100
+            ? 'Step 3 (within 100 km)'
+            : 'Step 4 (within 200 km)';
+      logMatchStep(stepLabel, capped);
+      return capped.map(({ business }) => business);
+    }
+  }
+
+  console.warn(
+    '[business-match] Step 5: no businesses within 200 km; returning empty list',
     {
       latitude: locationData.latitude,
       longitude: locationData.longitude,

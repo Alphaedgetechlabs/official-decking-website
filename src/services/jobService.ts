@@ -29,7 +29,6 @@ import {
 } from '../utils/businessMatchStatus';
 import { filterRealBusinesses } from '../lib/optimisticSignup';
 import {
-  fetchRandomBusinesses,
   resolveMatchedBusinessesForJob,
   type BusinessProfile,
 } from './businessService';
@@ -408,13 +407,10 @@ export async function createJob(
   const photoUrls = options?.photoUrls ?? [];
   // Ignore placeholder/pre-auth prefetch — those are display-only and often empty.
   const realPrefetched = filterRealBusinesses(options?.prefetchedBusinesses ?? []);
-  let nearbyBusinesses =
+  const nearbyBusinesses =
     realPrefetched.length > 0
       ? realPrefetched
       : await resolveMatchedBusinessesForJob(locationData);
-  if (nearbyBusinesses.length === 0) {
-    nearbyBusinesses = await fetchRandomBusinesses(3);
-  }
   const dynamicJobType = currentJobType;
   const { title, category } = labelsFromJobType(dynamicJobType);
   const byJobType = nearbyBusinesses.filter((business) =>
