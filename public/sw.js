@@ -1,5 +1,5 @@
-const CACHE_NAME = 'quotemyfence-v1';
-const STATIC_CACHE = 'quotemyfence-static-v1';
+const CACHE_NAME = 'quotemydeck-v1';
+const STATIC_CACHE = 'quotemydeck-static-v1';
 
 // Assets to pre-cache on install
 const PRECACHE_ASSETS = [

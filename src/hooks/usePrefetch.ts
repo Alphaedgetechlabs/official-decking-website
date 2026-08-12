@@ -133,6 +133,7 @@ const TIER_3: Importer[] = [
 ];
 
 let started = false;
+const prefetchedDocs = new Set<string>();
 const triggered = new WeakSet<Importer>();
 
 type RIC = (cb: () => void, opts?: { timeout?: number }) => number;
@@ -183,7 +184,72 @@ export const usePrefetch = () => {
 
     // Warm the image cache for the current page during idle.
     onIdle(() => preloadImagesOnPage(), { timeout: 3000 });
-  }, []);
+
+    // --- Intent-based prefetching -----------------------------------------
+    // Hover/touch on any internal link (or any element that opens the quote
+    // funnel) means a navigation is imminent: flush every remaining chunk
+    // right away instead of waiting for the idle tiers.
+    const flushAll = () => {
+      runTier(TIER_1, 0);
+      runTier(TIER_2, 0);
+      runTier(TIER_3, 0);
+    };
+
+    const prefetchDocument = (href: string) => {
+      if (prefetchedDocs.has(href)) return;
+      prefetchedDocs.add(href);
+      const link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.as = 'document';
+      link.href = href;
+      document.head.appendChild(link);
+    };
+
+    const internalHref = (el: EventTarget | null): string | null => {
+      const anchor = (el as HTMLElement | null)?.closest?.('a[href^="/"]') as HTMLAnchorElement | null;
+      return anchor ? anchor.getAttribute('href') : null;
+    };
+
+    const onIntent = (e: Event) => {
+      const href = internalHref(e.target);
+      if (href) prefetchDocument(href);
+      flushAll();
+    };
+
+    document.addEventListener('mouseenter', onIntent, { capture: true, passive: true });
+    document.addEventListener('touchstart', onIntent, { capture: true, passive: true });
+    document.addEventListener('pointerdown', onIntent, { capture: true, passive: true });
+
+    // Viewport prefetching: any internal link within 200px of the fold gets a
+    // document prefetch hint so a hard navigation is warm too.
+    let observer: IntersectionObserver | undefined;
+    if ('IntersectionObserver' in window) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            const href = (entry.target as HTMLAnchorElement).getAttribute('href');
+            if (href) prefetchDocument(href);
+            observer?.unobserve(entry.target);
+          });
+        },
+        { rootMargin: '200px' },
+      );
+      const observeLinks = () =>
+        document.querySelectorAll('a[href^="/"]').forEach((a) => observer?.observe(a));
+      observeLinks();
+      // Re-scan after route changes / lazy content arrives.
+      const rescan = window.setInterval(observeLinks, 1500);
+      window.setTimeout(() => window.clearInterval(rescan), 15000);
+    }
+
+    return () => {
+      document.removeEventListener('mouseenter', onIntent, { capture: true });
+      document.removeEventListener('touchstart', onIntent, { capture: true });
+      document.removeEventListener('pointerdown', onIntent, { capture: true });
+      observer?.disconnect();
+    };
+  }, [preloadImagesOnPage]);
 
   return {};
 };
