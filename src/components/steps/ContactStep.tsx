@@ -91,6 +91,10 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
 
         {/* Form */}
         <form
+          id="quote-contact-form"
+          name="quote-contact-form"
+          autoComplete="off"
+          data-form-type="other"
           onSubmit={async (e) => {
             e.preventDefault();
             setSubmitted(true);
@@ -100,15 +104,20 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
           noValidate
         >
           <div className="space-y-2">
-            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor="full-name">
+            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor={fieldIds.name}>
               <User className="w-4 h-4 mr-2" />
               Full Name
             </label>
             <input
               className={inputClass("name")}
-              id="full-name"
+              id={fieldIds.name}
+              name={fieldIds.name}
               placeholder="John Smith"
               type="text"
+              inputMode="text"
+              maxLength={100}
+              autoCapitalize="words"
+              {...noAutofillProps}
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
@@ -120,15 +129,20 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
           </div>
 
           <div className="space-y-2">
-            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor="email">
+            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor={fieldIds.email}>
               <Mail className="w-4 h-4 mr-2" />
               Email Address
             </label>
             <input
               className={inputClass("email")}
-              id="email"
+              id={fieldIds.email}
+              name={fieldIds.email}
               placeholder="john@example.com"
               type="email"
+              inputMode="email"
+              maxLength={255}
+              autoCapitalize="off"
+              {...noAutofillProps}
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
@@ -140,19 +154,22 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
           </div>
 
           <div className="space-y-2">
-            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor="phone">
+            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor={fieldIds.phone}>
               <Phone className="w-4 h-4 mr-2" />
               Best Phone Number
             </label>
             <input
               className={inputClass("phone")}
-              id="phone"
+              id={fieldIds.phone}
+              name={fieldIds.phone}
               type="tel"
               inputMode="tel"
-              autoComplete="tel"
+              maxLength={20}
+              autoCapitalize="off"
+              {...noAutofillProps}
               value={phone}
               onChange={(e) => {
-                setPhone(e.target.value);
+                setPhone(sanitizePhoneInput(e.target.value));
                 onClearError?.();
               }}
               onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
@@ -160,6 +177,7 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
             />
             {show("phone") && <p className="text-destructive text-sm mt-1">{errors.phone}</p>}
           </div>
+
 
           {/* Trust */}
           <div className="space-y-3 pt-4">
