@@ -153,8 +153,11 @@ const LocationStep = ({ trade, onNext }: LocationStepProps) => {
                   setStaticSuburb(null);
                 }}
                 selectedSuburb={staticSuburb}
-                onSelect={setStaticSuburb}
-              />
+                onSelect={(suburb) => {
+                  setStaticSuburb(suburb);
+                  setQuery(`${suburb.name}, ${suburb.state}, ${suburb.postcode}`);
+                }}
+              />న
             ) : (
               <AustraliaLocationAutocomplete
                 id="postcode"
