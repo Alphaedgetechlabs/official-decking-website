@@ -66,9 +66,11 @@ function StaticSuburbInput({
             <button
               key={`${suburb.name}-${suburb.state}-${i}`}
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
+                // onSelect owns both the selection and the input text; calling
+                // onQueryChange here would clear the selection again.
                 onSelect(suburb);
-                onQueryChange(`${suburb.name}, ${suburb.state}, ${suburb.postcode}`);
                 setShowDropdown(false);
               }}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-brand-orange-light transition-colors text-left"
