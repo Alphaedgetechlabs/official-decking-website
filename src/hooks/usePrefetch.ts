@@ -133,6 +133,7 @@ const TIER_3: Importer[] = [
 ];
 
 let started = false;
+const prefetchedDocs = new Set<string>();
 const triggered = new WeakSet<Importer>();
 
 type RIC = (cb: () => void, opts?: { timeout?: number }) => number;
