@@ -64,4 +64,3 @@ declare namespace google.maps {
   }
 }
 
-declare const google: typeof globalThis extends { google: infer G } ? G : typeof google;

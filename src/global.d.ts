@@ -1,4 +1,3 @@
-/// <reference types="google.maps" />
 import type { RecaptchaVerifier } from 'firebase/auth';
 
 declare global {
