@@ -1,6 +1,15 @@
-import { addDoc, collection, doc, getDoc } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  collectionGroup,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+} from 'firebase/firestore';
 import { currentJobType } from '../config/brandDomain';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import type { TimelineOption, WizardFormData } from '../types/wizard';
 import { formatPhoneForAuth } from '../utils/phone';
 import {
@@ -1096,6 +1105,81 @@ export interface JobAcceptedSmsParams {
   usersLeadDocId?: string;
   jobId?: string;
   jobTitle?: string;
+  /** Stagger position when already known at the call site (same as email). */
+  position?: number;
+}
+
+/**
+ * Reads how many businesses have accepted this job so far.
+ * Same collectionGroup('accepted_jobs') source as Home slots — count only.
+ */
+async function readAcceptedBusinessCount(jobId: string): Promise<number> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return 1;
+
+  const snapshot = await getDocs(
+    query(
+      collectionGroup(db, 'accepted_jobs'),
+      where('jobId', '==', jobId),
+      where('uid', '==', uid),
+    ),
+  );
+
+  const seen = new Set<string>();
+  for (const docSnap of snapshot.docs) {
+    const fromField = docSnap.data()?.businessId;
+    const businessId =
+      typeof fromField === 'string' && fromField.trim()
+        ? fromField.trim()
+        : (docSnap.ref.parent.parent?.id?.trim() ?? '');
+    if (businessId) seen.add(businessId);
+  }
+
+  return seen.size;
+}
+
+function buildJobAcceptedSmsBody(params: {
+  acceptedCount: number;
+  customerFirstName: string;
+  businessName: string;
+  businessPhone: string;
+  jobLink: string;
+}): string {
+  const {
+    acceptedCount,
+    customerFirstName,
+    businessName,
+    businessPhone,
+    jobLink,
+  } = params;
+
+  if (acceptedCount <= 1) {
+    return (
+      `Great news, ${customerFirstName}! Your first local decking business has accepted your project request on QuoteMyDecking.\n\n` +
+      `${businessName}\n` +
+      `${businessPhone}\n\n` +
+      'Call them directly or tap the link below to chat with them in real time.\n' +
+      `${jobLink}`
+    );
+  }
+
+  if (acceptedCount === 2) {
+    return (
+      `Great news, ${customerFirstName}! Another local decking business has accepted your project request on QuoteMyDecking.\n\n` +
+      `${businessName}\n` +
+      `${businessPhone}\n\n` +
+      'You now have 2 businesses to compare. Call them directly or tap the link below to chat with them in real time.\n' +
+      `${jobLink}`
+    );
+  }
+
+  return (
+    `Great news, ${customerFirstName}! Your third local decking business has accepted your project request on QuoteMyDecking.\n\n` +
+    `${businessName}\n` +
+    `${businessPhone}\n\n` +
+    'You now have 3 businesses ready to quote your project. Compare your quotes before choosing the right one.\n' +
+    `${jobLink}`
+  );
 }
 
 /**
@@ -1123,18 +1207,37 @@ export async function queueJobAcceptedSms(
   }
 
   const details = await resolveAcceptorDetails(params.acceptor);
+  const customerFirstName =
+    params.formData.fullName.trim().split(/\s+/)[0] || 'there';
+  const jobLink = `${window.location.origin}/app`;
 
-  const body =
-    'Good news! A business has accepted your job request.\n\n' +
-    'Business details:\n' +
-    `Business Name: ${details.businessName}\n` +
-    `Phone Number: ${details.phone}\n` +
-    `Email Address: ${details.email}\n\n` +
-    'Please open the app to view their details and chat.';
+  let acceptedCount = 1;
+  if (typeof params.position === 'number' && params.position > 0) {
+    acceptedCount = params.position;
+  } else if (params.jobId) {
+    try {
+      const fromAcceptedJobs = await readAcceptedBusinessCount(params.jobId);
+      acceptedCount = fromAcceptedJobs > 0 ? fromAcceptedJobs : 1;
+    } catch (err) {
+      console.warn(
+        '[queueJobAcceptedSms] Failed to read accepted-business count; using 1st template.',
+        { jobId: params.jobId, err },
+      );
+    }
+  }
+
+  const body = buildJobAcceptedSmsBody({
+    acceptedCount,
+    customerFirstName,
+    businessName: details.businessName,
+    businessPhone: details.phone,
+    jobLink,
+  });
 
   console.log('[queueJobAcceptedSms] Writing messages document to Firestore:', {
     to: customerPhone,
     businessName: details.businessName,
+    acceptedCount,
   });
 
   await queueSmsDocument(customerPhone, body);

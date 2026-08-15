@@ -534,6 +534,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
             usersLeadDocId: activePlan.usersLeadDocIdForAcceptedSms,
             jobId: activePlan.jobId,
             jobTitle: labelsFromJobType(currentJobType).title,
+            position: next,
           }).catch((err) => {
             console.error(
               `[stagger] Failed to queue accepted SMS for ${activePlan.jobId} business ${candidate.id}:`,
