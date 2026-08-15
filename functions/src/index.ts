@@ -74,7 +74,7 @@ export const processTwilioSms = onDocumentCreated(
     const client = twilio(accountSid, authToken);
 
     // TEMP DEV DISABLE — set to `false` to re-enable live Twilio SMS.
-    const TWILIO_SMS_DISABLED_FOR_DEV = true;
+    const TWILIO_SMS_DISABLED_FOR_DEV = false;
     if (TWILIO_SMS_DISABLED_FOR_DEV) {
       console.log("Twilio SMS sending is temporarily disabled for development");
       logger.info("Twilio SMS skipped (temporarily disabled for development)", {
