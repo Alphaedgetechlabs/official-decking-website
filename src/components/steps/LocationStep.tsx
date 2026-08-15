@@ -135,7 +135,7 @@ const LocationStep = ({ trade, onNext }: LocationStepProps) => {
               </svg>
             </div>
             <p className="text-muted-foreground text-lg">
-              We'll instantly match you with <span className="text-brand-orange font-semibold">verified local {tradeLower} pros</span> who are available right now.
+              We'll instantly match you with <span className="text-brand-orange font-semibold">verified local {tradeLower} professionals</span> who are available right now.
             </p>
           </div>
 
