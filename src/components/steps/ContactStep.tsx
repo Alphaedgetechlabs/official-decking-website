@@ -85,7 +85,7 @@ const ContactStep = ({ onNext, onBack, submitting = false, error, onClearError }
             Almost done! Your quotes are just minutes away.
           </h1>
           <p className="text-muted-foreground text-lg">
-            Enter your details so your decking pros can send accurate pricing.
+            Enter your details so your decking professionals can send accurate pricing.
           </p>
         </header>
 
