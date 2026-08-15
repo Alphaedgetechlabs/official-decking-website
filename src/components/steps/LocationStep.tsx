@@ -188,7 +188,7 @@ const LocationStep = ({ trade, onNext }: LocationStepProps) => {
             <div>
               <h3 className="font-bold text-foreground text-lg mb-1">Local Expertise</h3>
               <p className="text-muted-foreground">
-                Trusted by <span className="font-bold text-foreground">1000's of Aussie homeowners</span> looking for fast, reliable {tradeLower} quotes.
+                Trusted by <span className="font-bold text-foreground">1000's of Aussie homeowners</span> looking for fast, reliable quotes.
               </p>
             </div>
           </div>
