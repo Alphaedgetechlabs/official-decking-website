@@ -71,7 +71,7 @@ export function Step4ContactDetails({ onSendOtp }: Step4ContactDetailsProps) {
         Almost done! Your quotes are just minutes away.
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-body">
-        Enter your details so your decking pros can send accurate pricing.
+        Enter your details so your decking professionals can send accurate pricing.
       </p>
 
       <div className="mt-6 space-y-4">
