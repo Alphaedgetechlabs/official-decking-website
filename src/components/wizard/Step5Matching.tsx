@@ -18,7 +18,6 @@ import {
 } from '../../services/jobService';
 import { currentJobType } from '../../config/brandDomain';
 import type { BusinessProfile } from '../../services/businessService';
-import { queueJobAcceptedEmail, queueJobAcceptedSms } from '../../services/mailService';
 import { useDashboardStore } from '../../stores/dashboardStore';
 import { getFirstName, type UserDocument } from '../../types/user';
 import { getBusinessDisplayMeta } from '../../utils/businessDisplay';
@@ -508,38 +507,6 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
             myRunId,
             activeRunId: activeStaggerRunIdRef.current,
             at: Date.now(),
-          });
-
-          void queueJobAcceptedEmail({
-            to: activePlan.formData.email,
-            formData: activePlan.formData,
-            acceptor: candidate,
-            jobTitle: labelsFromJobType(currentJobType).title,
-            position: next as 1 | 2 | 3,
-            acceptedSoFar: activePlan.staggerCandidates.slice(0, next).map((b) => ({
-              businessName: b.businessName,
-              rating: b.rating,
-              reviewCount: b.reviewCount,
-            })),
-          }).catch((err) => {
-            console.error(
-              `[stagger] Failed to queue accepted email for ${activePlan.jobId} business ${candidate.id}:`,
-              err,
-            );
-          });
-
-          void queueJobAcceptedSms({
-            formData: activePlan.formData,
-            acceptor: candidate,
-            usersLeadDocId: activePlan.usersLeadDocIdForAcceptedSms,
-            jobId: activePlan.jobId,
-            jobTitle: labelsFromJobType(currentJobType).title,
-            position: next,
-          }).catch((err) => {
-            console.error(
-              `[stagger] Failed to queue accepted SMS for ${activePlan.jobId} business ${candidate.id}:`,
-              err,
-            );
           });
 
           revealedRef.current = next;
