@@ -413,6 +413,8 @@ export async function queueJobPostedEmails(
     jobTitle?: string;
     customerLabel?: string;
     matchedBusinessIds?: string[];
+    photoUrls?: string[];
+
   },
 ): Promise<void> {
   const businessesWithEmail = await resolveJobNotificationRecipients(businesses, {
@@ -442,6 +444,19 @@ export async function queueJobPostedEmails(
       ? TIMELINE_LABELS[formData.timeline]
       : 'Not specified';
   const description = formData.jobDescription.trim();
+  const businessAppUrl = 'https://quotemybusiness.com.au'; 
+  const photos = (options.photoUrls ?? [])
+  .filter((url) => typeof url === 'string' && url.startsWith('https://'))
+  .slice(0, 4);
+
+const photosBlock = photos.length === 0 ? '' : `
+                          <div style="height:1px;background-color:#EAEAEA;font-size:0;line-height:0;margin-top:16px;">&nbsp;</div>
+                          <div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;font-weight:bold;color:#8A8A8A;letter-spacing:0.5px;line-height:18px;padding-top:16px;">SITE PHOTOS (${photos.length} ATTACHED)</div>
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
+                            <tr>
+${photos.map((url) => `                                <td valign="top" style="padding-right:10px;"><img src="${escapeHtml(url)}" width="110" height="110" alt="" style="display:block;width:110px;height:110px;object-fit:cover;border:1px solid #EAEAEA;border-radius:8px;" /></td>`).join('\n')}
+                            </tr>
+                          </table>`;
   const mailRef = collection(db, MAIL_COLLECTION);
 
   console.log('[queueJobPostedEmails] Queueing job notification emails:', {
@@ -458,22 +473,117 @@ export async function queueJobPostedEmails(
         message: {
           subject: `New Job Request: ${jobTitle}`,
           html: `
-      <h2>New Job Request Received</h2>
-      <p>${escapeHtml(customerLabel)} has posted a new job on the platform. Here are the details:</p>
-      <ul>
-        <li><strong>Job ID:</strong> ${escapeHtml(options.jobId)}</li>
-        <li><strong>User Name:</strong> ${escapeHtml(userName)}</li>
-        <li><strong>Job Title:</strong> ${escapeHtml(jobTitle)}</li>
-        <li><strong>Category:</strong> ${escapeHtml(category)}</li>
-        <li><strong>Area/Location:</strong> ${escapeHtml(area)}</li>
-        <li><strong>Suburb:</strong> ${escapeHtml(suburb)}</li>
-        <li><strong>Timeline:</strong> ${escapeHtml(time)}</li>
-      </ul>
-      <h3>Description:</h3>
-      <p>${escapeHtml(description)}</p>
-      <br>
-      <p>Please open the Business App to accept or review this job.</p>
-    `,
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F5F5F5;margin:0;padding:24px 12px;">
+            <tr>
+              <td align="center">
+                <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;background-color:#FFFFFF;border-radius:16px;">
+          
+                  <tr>
+                    <td align="center" style="padding:26px 24px 20px 24px;border-bottom:1px solid #ECECEC;font-family:Helvetica,Arial,sans-serif;font-size:26px;font-weight:bold;line-height:32px;">
+                      <span style="color:#E17A47;">Quote</span><span style="color:#1A1A1A;">MyDecking</span>
+                    </td>
+                  </tr>
+          
+                  <tr>
+                    <td style="padding:26px 24px 0 24px;font-family:Helvetica,Arial,sans-serif;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;">
+                        <tr>
+                          <td valign="top" style="font-family:Helvetica,Arial,sans-serif;font-size:19px;font-weight:bold;color:#1A1A1A;line-height:26px;">
+                            New Lead: ${escapeHtml(jobTitle)}
+                          </td>
+                          <td valign="top" align="right" style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#8A8A8A;line-height:26px;white-space:nowrap;">
+                            ID: ${escapeHtml(options.jobId)}
+                          </td>
+                        </tr>
+                      </table>
+                      <div style="font-size:14px;color:#6B6B6B;line-height:20px;padding-top:6px;">
+                        Review the details below and accept the job.
+                      </div>
+                    </td>
+                  </tr>
+          
+                  <tr>
+                    <td style="padding:18px 24px 0 24px;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#FAFAFA;border:1px solid #EFEFEF;border-radius:12px;table-layout:fixed;">
+                        <tr>
+                          <td style="padding:16px;font-family:Helvetica,Arial,sans-serif;">
+          
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                              <tr>
+                                <td style="padding:0 8px 0 0;">
+                                  <div style="background-color:#FDEEE5;border-radius:8px;padding:7px 12px;font-size:13px;font-weight:bold;color:#E17A47;">${escapeHtml(category)}</div>
+                                </td>
+                                <td style="padding:0 8px 0 0;">
+                                  <div style="background-color:#F0F0F0;border-radius:8px;padding:7px 12px;font-size:13px;color:#4A4A4A;">${escapeHtml(suburb)}</div>
+                                </td>
+                                <td>
+                                  <div style="background-color:#F0F0F0;border-radius:8px;padding:7px 12px;font-size:13px;color:#4A4A4A;">${escapeHtml(time)}</div>
+                                </td>
+                              </tr>
+                            </table>
+          
+                            <div style="height:1px;background-color:#EAEAEA;font-size:0;line-height:0;margin-top:16px;">&nbsp;</div>
+          
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#FFFFFF;border:1px solid #EFEFEF;border-radius:10px;margin-top:16px;table-layout:fixed;">
+                              <tr>
+                                <td style="padding:14px 16px;font-family:Helvetica,Arial,sans-serif;">
+                                  <div style="font-size:13px;color:#8A8A8A;line-height:18px;">Customer Notes</div>
+                                  <div style="font-size:15px;color:#1A1A1A;line-height:22px;padding-top:6px;">${escapeHtml(description) || 'No additional notes provided.'}</div>
+                                </td>
+                              </tr>
+                            </table>
+          
+                            <div style="height:1px;background-color:#EAEAEA;font-size:0;line-height:0;margin-top:16px;">&nbsp;</div>
+          
+                                                       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-top:14px;table-layout:fixed;">
+                              <tr>
+                                <td style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#8A8A8A;line-height:18px;padding-bottom:4px;">Customer</td>
+                                <td align="right" style="font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold;color:#1A1A1A;line-height:18px;padding-bottom:4px;">${escapeHtml(userName)}</td>
+                              </tr>
+                              <tr>
+                                <td style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#8A8A8A;line-height:18px;">Area</td>
+                                <td align="right" style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#1A1A1A;line-height:18px;">${escapeHtml(area)}</td>
+                              </tr>
+                            </table>
+          
+                          
+${photosBlock}
+          
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+          
+                  <tr>
+                    <td align="center" style="padding:24px 24px 0 24px;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td align="center" style="background-color:#E17A47;border-radius:10px;">
+                            <a href="${escapeHtml(businessAppUrl)}" style="display:inline-block;padding:15px 34px;font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;color:#FFFFFF;text-decoration:none;">Login to Accept Job</a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+          
+                  <tr>
+                    <td align="center" style="padding:14px 24px 26px 24px;font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#8A8A8A;line-height:18px;">
+                      The first 3 businesses to accept will receive this lead.
+                    </td>
+                  </tr>
+          
+                  <tr>
+                    <td align="center" style="padding:18px 24px;background-color:#FAFAFA;border-top:1px solid #ECECEC;border-radius:0 0 16px 16px;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#9A9A9A;line-height:18px;">
+                      &copy; 2026 QuoteMy. All rights reserved.
+                    </td>
+                  </tr>
+          
+                </table>
+              </td>
+            </tr>
+          </table>
+          `,
         },
       });
     }),
@@ -525,7 +635,7 @@ export interface JobAcceptedEmailParams {
 const ACCEPTED_CARD_SUBTITLES: Array<(name: string) => string> = [
   (name) => `${name} is available for your job.`,
   () => 'Competitive quotes coming your way.',
-  () => '3 local pros are ready to quote.',
+  () => '3 local professionals are ready to quote.',
 ];
 
 function formatAcceptedRatingLine(
@@ -621,27 +731,26 @@ function buildStaggerAcceptedEmailHtml(params: {
   const cards = params.acceptedSoFar.slice(0, params.position);
 
   const bannerText =
-    params.position === 3 ? 'Congratulations!' : 'Job Post Accepted';
+  params.position === 3
+    ? `You've matched with 3 ${tradeLabelHtml} businesses`
+    : params.position === 2
+      ? `Another ${tradeLabelHtml} business has accepted your project.`
+      : `A ${tradeLabelHtml} business has accepted your project`;
+
   const headline =
     params.position === 1
-      ? `Congratulations ${firstNameHtml}, first contractor to accept your job post`
+      ? `Great news, ${firstNameHtml}! your first local ${tradeLabelHtml} professional is ready to discuss your project.`
       : params.position === 2
-        ? `Congratulations ${firstNameHtml}, second contractor to accept your job post`
-        : `It's easy to Get 3 quotes now`;
+        ? `Great news, ${firstNameHtml}! You now have 2 local businesses to compare`
+        : `You now have 3 local ${tradeLabelHtml} professionals ready to discuss your project`;
 
   const greenBox =
     params.position === 1
-      ? `<div style="font-size:15px;font-weight:bold;color:#1A1A1A;line-height:21px;">Don't worry we're working even harder to find you more contractors.</div>`
+      ? `<div style="font-size:15px;font-weight:bold;color:#1A1A1A;line-height:21px;">We're continuing to look for more suitable businesses so you can compare your options.</div>`
       : params.position === 2
-        ? `<div style="font-size:15px;font-weight:bold;color:#1A1A1A;line-height:21px;">Don't worry one more to go and we're working even harder.</div>`
-        : `<div style="font-size:15px;font-weight:bold;color:#1A1A1A;line-height:21px;">Your quotes are being prepared now!</div><div style="font-size:13px;color:#5B5B5B;line-height:19px;padding-top:4px;">We've matched you with 3 top-rated ${tradeLabelHtml} contractors. You'll receive your quotes shortly.</div>`;
+        ? `<div style="font-size:15px;font-weight:bold;color:#1A1A1A;line-height:21px;">We're still looking for one more suitable local business.</div>`
+        : `<div style="font-size:15px;font-weight:bold;color:#1A1A1A;line-height:21px;">Your quotes are being prepared now!</div><div style="font-size:13px;color:#5B5B5B;line-height:19px;padding-top:4px;">Compare your options and choose the professional that's right for your project.</div>`;
 
-  const footerMain =
-    params.position === 1
-      ? 'Talk to your first contractor to give you a quote as soon as possible..'
-      : params.position === 2
-        ? 'Talk to the contractors as soon as you can so you can get your quotes in now time.'
-        : 'Your quotes could arrive in the next 3&ndash;7 minutes.';
 
   const skeletonCount = Math.max(0, 3 - cards.length);
   const cardRows =
@@ -657,7 +766,7 @@ function buildStaggerAcceptedEmailHtml(params: {
               <tr>
                 <td width="25%" align="center" valign="top" style="width:25%;font-family:Helvetica,Arial,sans-serif;">
                   <div style="width:34px;height:34px;background-color:#FDEEE5;border-radius:17px;text-align:center;font-size:15px;line-height:34px;color:#E17A47;margin:0 auto;">&#9679;</div>
-                  <div style="font-size:10px;color:#6B6B6B;line-height:14px;padding-top:6px;">Verified Pros</div>
+                  <div style="font-size:10px;color:#6B6B6B;line-height:14px;padding-top:6px;">Verified professionals</div>
                 </td><td width="25%" align="center" valign="top" style="width:25%;font-family:Helvetica,Arial,sans-serif;">
                   <div style="width:34px;height:34px;background-color:#FDEEE5;border-radius:17px;text-align:center;font-size:15px;line-height:34px;color:#E17A47;margin:0 auto;">&#10003;</div>
                   <div style="font-size:10px;color:#6B6B6B;line-height:14px;padding-top:6px;">Licensed &amp; Insured</div>
@@ -729,11 +838,7 @@ ${featuresStrip}
             </table>
 
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-              <tr>
-                <td align="center" style="padding:20px 8px 0 8px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;font-weight:bold;color:#1A1A1A;">
-                  ${footerMain}
-                </td>
-              </tr>
+              
               <tr>
                 <td align="center" style="padding:8px 8px 0 8px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#9A9A9A;">
                   Keep an eye on your phone.
@@ -876,7 +981,7 @@ export async function queueJobPostedCustomerEmail(
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td align="center" style="padding:28px 8px 0 8px;font-family:Helvetica,Arial,sans-serif;font-size:24px;line-height:32px;font-weight:bold;color:#1A1A1A;">
-                  We're finding the best ${escapeHtml(tradeLabel)} contractors near you&hellip;
+                  We're now looking for local ${escapeHtml(tradeLabel)} professionals near you&hellip;
                 </td>
               </tr>
             </table>
@@ -998,19 +1103,14 @@ export async function queueJobPostedCustomerEmail(
               </tr>
             </table>
 
-            <!-- FOOTER TEXT -->
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-              <tr>
-                <td align="center" style="padding:24px 12px 0 12px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:22px;font-weight:bold;color:#1A1A1A;">
-                  Don't worry ${escapeHtml(firstName)} we're working hard to get you quotes as soon as we can.
-                </td>
-              </tr>
-              <tr>
-                <td align="center" style="padding:10px 12px 0 12px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#9A9A9A;">
-                  Keep an eye on your phone.
-                </td>
-              </tr>
-            </table>
+          <!-- FOOTER TEXT -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+  <tr>
+    <td align="center" style="padding:24px 12px 0 12px;font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;color:#9A9A9A;">
+      Keep an eye on your phone.
+    </td>
+  </tr>
+</table>
 
           </td>
         </tr>
@@ -1036,6 +1136,7 @@ export interface JobPostedSmsParams {
     jobTitle?: string;
     customerLabel?: string;
     matchedBusinessIds?: string[];
+    
   };
 }
 

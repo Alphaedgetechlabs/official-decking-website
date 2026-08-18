@@ -4,11 +4,10 @@ import {
   brandNamePrefix,
   brandNameSuffix,
 } from '@/config/brandDomain';
-import fenceLogoMark from '@/assets/qm-fence-logo.png';
-
-/** Exact colors from qm-fence-logo.png (orange picket / dark pickets). */
-const LOGO_ORANGE = '#e06c36';
-const LOGO_DARK = '#29272c';
+const QUOTE_COLOR = '#FF6A1C';
+const MY_COLOR = '#666666';
+const REST_COLOR = '#333333';
+const REST_COLOR_ON_DARK = '#ffffff';
 
 interface AppLogoProps {
   variant?: 'light' | 'dark';
@@ -22,32 +21,26 @@ export function AppLogo({
   showChevron = false,
 }: AppLogoProps) {
   const isLight = variant === 'light';
+  const hasMyPrefix = brandNameSuffix.startsWith('My');
+  const restLabel = hasMyPrefix ? brandNameSuffix.slice(2) : brandNameSuffix;
+  const restColor = isLight ? REST_COLOR_ON_DARK : REST_COLOR;
 
   return (
     <div className="flex min-w-0 items-center gap-2.5">
-      <img
-        src={fenceLogoMark}
-        alt={brandLogoAlt}
-        className={
-          isLight
-            ? 'h-7 w-auto shrink-0 object-contain rounded-md bg-white p-0.5'
-            : 'h-[42px] w-auto shrink-0 object-contain sm:h-[48px]'
-        }
-      />
       <span
         className={`truncate font-bold tracking-tight leading-none ${
-          isLight ? 'text-[15px]' : 'text-[26px] sm:text-[28px]'
+          isLight ? 'text-[24px]' : 'text-[30px] sm:text-[34px]'
         }`}
+        aria-label={brandLogoAlt}
       >
-        <span style={{ color: LOGO_ORANGE }}>{brandNamePrefix}</span>
-        <span style={{ color: isLight ? '#ffffff' : LOGO_DARK }}>
-          {brandNameSuffix}
-        </span>
+        <span style={{ color: QUOTE_COLOR }}>{brandNamePrefix}</span>
+        {hasMyPrefix && <span style={{ color: MY_COLOR }}>My</span>}
+        <span style={{ color: restColor }}>{restLabel}</span>
       </span>
       {showChevron && (
         <ChevronRight
           className="hidden h-4 w-4 shrink-0 sm:block"
-          style={{ color: LOGO_ORANGE }}
+          style={{ color: QUOTE_COLOR }}
           strokeWidth={2.5}
           aria-hidden
         />

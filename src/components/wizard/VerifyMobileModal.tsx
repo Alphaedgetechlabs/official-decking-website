@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight } from 'lucide-react';
+import { AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { OtpBoxesInput } from '../ui/OtpBoxesInput';
@@ -6,8 +6,9 @@ import { OtpBoxesInput } from '../ui/OtpBoxesInput';
 interface VerifyMobileModalProps {
   open: boolean;
   phoneDisplay: string;
-  onVerify: (otp: string) => void;
+  onVerify: (otp: string) => Promise<void>;
   onResend: () => Promise<void>;
+  onChangeNumber: () => void;
   error?: string | null;
   onClearError?: () => void;
 }
@@ -49,19 +50,29 @@ export function VerifyMobileModal({
   phoneDisplay,
   onVerify,
   onResend,
+  onChangeNumber,
   error,
   onClearError,
 }: VerifyMobileModalProps) {
   const [otp, setOtp] = useState('');
   const [resending, setResending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   if (!open) return null;
 
   const isValid = otp.trim().length === 6;
 
-  const handleVerify = () => {
-    if (!isValid) return;
-    onVerify(otp.trim());
+  const handleVerify = async () => {
+    if (!isValid || verifying) return;
+    setVerifying(true);
+    try {
+      await onVerify(otp.trim());
+    } catch {
+      setOtp('');
+      document.getElementById('verify-mobile-otp')?.focus();
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const handleResend = async () => {
@@ -95,7 +106,7 @@ export function VerifyMobileModal({
           id="verify-mobile-title"
           className="text-center text-xl font-bold text-heading sm:text-2xl"
         >
-          Verify Your Mobile
+          Verify Your Mobile Number
         </h2>
         <p className="mt-2 text-center text-sm text-body">
           We&apos;ve sent a 6-digit code to{' '}
@@ -130,11 +141,17 @@ export function VerifyMobileModal({
         <button
           type="button"
           onClick={handleVerify}
-          disabled={!isValid}
+          disabled={!isValid || verifying}
           className="relative mt-6 flex w-full items-center justify-center rounded-xl bg-brand py-4 text-sm font-semibold text-white transition-colors hover:bg-[#d96f42] active:bg-[#c9653a] disabled:cursor-not-allowed disabled:bg-brand-muted"
         >
-          Verify &amp; Continue
-          <ArrowRight className="absolute right-5 h-4 w-4" strokeWidth={2} />
+          {verifying ? (
+            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+          ) : (
+            <>
+              Verify &amp; Continue
+              <ArrowRight className="absolute right-5 h-4 w-4" strokeWidth={2} />
+            </>
+          )}
         </button>
 
         <button
@@ -144,6 +161,14 @@ export function VerifyMobileModal({
           className="mt-4 w-full text-center text-sm font-medium text-body hover:text-heading disabled:cursor-not-allowed disabled:opacity-60"
         >
           {resending ? 'Resending…' : 'Resend Code'}
+        </button>
+
+        <button
+          type="button"
+          onClick={onChangeNumber}
+          className="mt-3 w-full text-center text-sm font-medium text-body hover:text-heading"
+        >
+          Change number? Click here
         </button>
       </div>
     </div>,

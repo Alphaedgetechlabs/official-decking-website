@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Step5Matching } from "@/components/wizard/Step5Matching";
 import { useWizard } from "@/context/WizardContext";
 import { auth } from "@/firebase";
-import { completeSignupVerification } from "@/lib/completeSignupVerification";
+import { completeSignupAfterVerification } from "@/lib/completeSignupVerification";
 import { waitForCondition } from "@/lib/waitForCondition";
 import type { PostedNotificationsPayload, StaggerAcceptPlan } from "@/services/jobService";
 import {
@@ -13,6 +13,7 @@ import {
   getAuthErrorMessage,
   resetRecaptchaVerifier,
   sendLoginOtp,
+  verifySignupOtp,
 } from "@/services/authService";
 import { useDashboardStore } from "@/stores/dashboardStore";
 import { clearSession } from "@/utils/session";
@@ -85,18 +86,23 @@ export function useSignupOtpHandlers(
     }
   };
 
-  const handleVerifyOtp = async (otp: string) => {
-    try {
-      await waitForCondition(() => confirmationRef.current);
-      if (!confirmationRef.current) {
-        throw new Error("Verification session expired. Please try again.");
-      }
+  const verifyOtpOnly = async (otp: string) => {
+    await waitForCondition(() => confirmationRef.current);
+    if (!confirmationRef.current) {
+      throw new Error("Verification session expired. Please try again.");
+    }
 
-      const { businesses, postedNotificationsPayload, staggerAcceptPlan } = await completeSignupVerification({
-        confirmation: confirmationRef.current,
-        otp,
+    return verifySignupOtp(confirmationRef.current, otp);
+  };
+
+  const runPostVerification = async (uid: string) => {
+    try {
+      const { businesses, postedNotificationsPayload, staggerAcceptPlan } = await completeSignupAfterVerification({
+        confirmation: confirmationRef.current!,
+        otp: '',
         formData,
         matchedBusinesses,
+        uid,
       });
       setMatchedBusinesses(businesses);
       return { postedNotificationsPayload, staggerAcceptPlan };
@@ -110,7 +116,7 @@ export function useSignupOtpHandlers(
     }
   };
 
-  return { handleSendOtp, handleResendOtp, handleVerifyOtp };
+  return { handleSendOtp, handleResendOtp, verifyOtpOnly, runPostVerification };
 }
 
 export function useOtpConfirmationRef() {

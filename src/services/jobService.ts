@@ -47,6 +47,8 @@ export interface PostedNotificationsPayload {
     jobTitle: string;
     customerLabel: string;
     matchedBusinessIds: string[];
+    photoUrls?: string[];
+
   };
 }
 
@@ -149,8 +151,9 @@ function buildPostedNotificationsPayload(params: {
   matchedBusinesses: BusinessProfile[];
   jobId: string;
   customerLabel: string;
+  photoUrls?: string[];
 }): PostedNotificationsPayload {
-  const { formData, matchedBusinesses, jobId, customerLabel } = params;
+  const { formData, matchedBusinesses, jobId, customerLabel, photoUrls } = params;
   return {
     formData,
     matchedBusinesses,
@@ -159,6 +162,8 @@ function buildPostedNotificationsPayload(params: {
       jobTitle: labelsFromJobType(currentJobType).title,
       customerLabel,
       matchedBusinessIds: matchedBusinesses.map((business) => business.id),
+      photoUrls,
+
     },
   };
 }
@@ -168,7 +173,7 @@ export async function queuePostedNotifications(
 ): Promise<void> {
   const { formData, matchedBusinesses, options } = payload;
   await Promise.all([
-    queueJobPostedEmails(formData, matchedBusinesses, options),
+    queueJobPostedEmails(formData, matchedBusinesses, options,),
     queueJobPostedSms(formData, matchedBusinesses, options),
     queueJobPostedCustomerEmail({
       to: formData.email,
@@ -405,12 +410,7 @@ export async function createJob(
   const fullName = (options?.fullName ?? formData.fullName).trim();
   const email = (options?.email ?? formData.email ?? '').trim().toLowerCase();
   const photoUrls = options?.photoUrls ?? [];
-  // Ignore placeholder/pre-auth prefetch — those are display-only and often empty.
-  const realPrefetched = filterRealBusinesses(options?.prefetchedBusinesses ?? []);
-  const nearbyBusinesses =
-    realPrefetched.length > 0
-      ? realPrefetched
-      : await resolveMatchedBusinessesForJob(locationData);
+  const nearbyBusinesses = await resolveMatchedBusinessesForJob(locationData);
   const dynamicJobType = currentJobType;
   const { title, category } = labelsFromJobType(dynamicJobType);
   const byJobType = nearbyBusinesses.filter((business) =>
@@ -712,6 +712,7 @@ export async function saveAdditionalJob(
       matchedBusinesses,
       jobId,
       customerLabel: 'A customer',
+      photoUrls,
     }),
   };
 }

@@ -10,7 +10,6 @@ import { prefetchDashboardForUser } from '@/lib/dashboardBusinesses';
 import { waitForCondition } from '@/lib/waitForCondition';
 import { findUserByPhone, verifySignupOtp } from '@/services/authService';
 import {
-  fetchRandomBusinesses,
   resolveMatchedBusinessesForJob,
   type BusinessProfile,
 } from '@/services/businessService';
@@ -41,7 +40,7 @@ async function waitForVerifiedAuthUser(uid: string): Promise<void> {
 }
 
 /**
- * Same match order as createJob: prefetched → geo radius → random.
+ * Location match only. Empty geo is a valid result — do not fill with random businesses.
  * Must finish before the matching UI advances.
  */
 async function resolveBusinessesOrFetch(
@@ -55,27 +54,23 @@ async function resolveBusinessesOrFetch(
       await resolveMatchedBusinessesForJob(locationData),
     );
   }
-  if (resolved.length === 0) {
-    resolved = filterRealBusinesses(await fetchRandomBusinesses(3));
-  }
-  if (resolved.length === 0) {
-    throw new Error('Unable to load matched businesses.');
-  }
   return resolved;
 }
 
-export async function completeSignupVerification(params: {
-  confirmation: ConfirmationResult;
-  otp: string;
-  formData: WizardFormData;
-  matchedBusinesses: BusinessProfile[];
-}): Promise<{
+export async function completeSignupAfterVerification(
+  params: {
+    confirmation: ConfirmationResult;
+    otp: string;
+    formData: WizardFormData;
+    matchedBusinesses: BusinessProfile[];
+  } & { uid: string },
+): Promise<{
   user: UserDocument;
   businesses: BusinessProfile[];
   staggerAcceptPlan: StaggerAcceptPlan | null;
   postedNotificationsPayload: PostedNotificationsPayload | null;
 }> {
-  const uid = await verifySignupOtp(params.confirmation, params.otp);
+  const uid = params.uid;
 
   // OTP confirm can resolve before Auth state/token is usable by Firestore.
   await waitForVerifiedAuthUser(uid);
@@ -83,7 +78,7 @@ export async function completeSignupVerification(params: {
   const existing = await findUserByPhone(params.formData.phone);
 
   // Block only until we have a list the matching screen can render.
-  // Prefer already-prefetched matches so geo/random fetches stay in the background.
+  // Prefer already-prefetched matches so geo fetches stay in the background.
   const prefetched = filterRealBusinesses(params.matchedBusinesses);
   const resolvedBusinesses =
     prefetched.length > 0
@@ -121,6 +116,21 @@ export async function completeSignupVerification(params: {
     formData: params.formData,
     matchedBusinesses: resolvedBusinesses,
   });
+}
+
+export async function completeSignupVerification(params: {
+  confirmation: ConfirmationResult;
+  otp: string;
+  formData: WizardFormData;
+  matchedBusinesses: BusinessProfile[];
+}): Promise<{
+  user: UserDocument;
+  businesses: BusinessProfile[];
+  staggerAcceptPlan: StaggerAcceptPlan | null;
+  postedNotificationsPayload: PostedNotificationsPayload | null;
+}> {
+  const uid = await verifySignupOtp(params.confirmation, params.otp);
+  return completeSignupAfterVerification({ ...params, uid });
 }
 
 async function completeExistingUserJobPost(params: {

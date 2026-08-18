@@ -1,14 +1,18 @@
 import { Search, Star } from 'lucide-react';
 import type { MessageItem } from '../../data/messages';
+import { BusinessAvatar } from '../ui/BusinessAvatar';
 
 function MessageAvatar({ message }: { message: MessageItem }) {
   return (
     <div className="relative shrink-0">
-      <div
-        className={`flex h-11 w-11 items-center justify-center rounded-full text-[12px] font-bold ${message.avatarBg} ${message.avatarText}`}
-      >
-        {message.initials}
-      </div>
+      <BusinessAvatar
+        businessName={message.name}
+        logoUrl={message.logoUrl}
+        initialsOverride={message.initials}
+        avatarBgOverride={message.avatarBg}
+        avatarTextOverride={message.avatarText}
+        className="h-11 w-11 text-[12px] font-bold"
+      />
       {message.isOnline && (
         <span
           className="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white bg-brand"

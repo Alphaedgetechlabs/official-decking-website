@@ -25,6 +25,7 @@ export interface BusinessDocument {
   type?: 'business';
   email: string;
   businessName: string;
+  logoUrl?: string | null;
   phone: string;
   countryCode?: string;
   phoneNormalized?: string;

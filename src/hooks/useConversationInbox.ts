@@ -23,6 +23,7 @@ function conversationToMessageItem(
   conversation: InboxConversation,
   presence: UserPresence,
   rating: number,
+  logoUrl: string | null,
   now = Date.now(),
 ): MessageItem {
   const initials = getBusinessInitials(conversation.businessName);
@@ -48,6 +49,7 @@ function conversationToMessageItem(
     initials,
     avatarBg,
     avatarText,
+    logoUrl,
   };
 }
 
@@ -80,6 +82,7 @@ function businessWithoutConversation(
     initials,
     avatarBg,
     avatarText,
+    logoUrl: business.logoUrl ?? null,
   };
 }
 
@@ -192,6 +195,7 @@ export function useConversationInbox(
           },
           presence,
           business.rating || 0,
+          business.logoUrl ?? null,
           now,
         );
       }

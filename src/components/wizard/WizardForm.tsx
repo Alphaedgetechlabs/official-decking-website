@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ConfirmationResult } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
 import { useWizard } from '../../context/WizardContext';
 import { auth } from '../../firebase';
-import { cachePrefetchedBusinesses } from '../../lib/optimisticSignup';
 import { completeSignupVerification } from '../../lib/completeSignupVerification';
 import { withMinimumDelay } from '../../lib/withMinimumDelay';
 import { waitForCondition } from '../../lib/waitForCondition';
@@ -13,7 +12,6 @@ import {
   resetRecaptchaVerifier,
   sendLoginOtp,
 } from '../../services/authService';
-import { fetchRandomBusinesses } from '../../services/businessService';
 import { useDashboardStore } from '../../stores/dashboardStore';
 import { clearSession } from '../../utils/session';
 import { Step1Location } from './Step1Location';
@@ -37,20 +35,6 @@ export function WizardForm({ onComplete }: WizardFormProps) {
   const otpSendFailedRef = useRef(false);
   const [matchingPromise, setMatchingPromise] = useState<Promise<MatchingReadyResult> | undefined>();
   const [otpRetry, setOtpRetry] = useState<{ error: string } | null>(null);
-
-  useEffect(() => {
-    if (step !== 4) return;
-    // Best-effort only — businesses require auth; real match runs after OTP.
-    void fetchRandomBusinesses(3)
-      .then((businesses) => {
-        if (businesses.length === 0) return;
-        setMatchedBusinesses(businesses);
-        cachePrefetchedBusinesses(businesses);
-      })
-      .catch((err) => {
-        console.warn('Pre-auth business prefetch skipped:', err);
-      });
-  }, [step, setMatchedBusinesses]);
 
   const handleSendSignupOtp = async (phoneE164: string) => {
     otpSendFailedRef.current = false;

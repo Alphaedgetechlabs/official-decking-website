@@ -1,9 +1,6 @@
 import { MessageSquare } from 'lucide-react';
 import type { BusinessProfile } from '../../services/businessService';
-import {
-  getBusinessAvatarStyle,
-  getBusinessInitials,
-} from '../../utils/businessDisplay';
+import { BusinessAvatar } from '../ui/BusinessAvatar';
 
 interface BusinessProfileCardProps {
   business: BusinessProfile;
@@ -23,8 +20,6 @@ export function BusinessProfileCard({
   onMessage,
   variant = 'row',
 }: BusinessProfileCardProps) {
-  const initials = getBusinessInitials(business.businessName);
-  const { avatarBg, avatarText } = getBusinessAvatarStyle(business.businessName);
   const description = truncateWords(business.description || '', 20);
   const rating = business.rating || 0;
   const reviews = business.reviewCount || 0;
@@ -34,11 +29,11 @@ export function BusinessProfileCard({
       <div className="rounded-xl border border-border bg-white p-4 shadow-[0_1px_4px_rgba(0,0,0,0.05)]">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${avatarBg} ${avatarText}`}
-            >
-              {initials}
-            </div>
+            <BusinessAvatar
+              businessName={business.businessName}
+              logoUrl={business.logoUrl}
+              className="h-10 w-10 shrink-0 text-[12px] font-semibold"
+            />
             <div>
               <p className="text-[14px] font-bold text-heading">
                 {business.businessName}
@@ -66,11 +61,11 @@ export function BusinessProfileCard({
 
   return (
     <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-4 last:border-b-0">
-      <div
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${avatarBg} ${avatarText}`}
-      >
-        {initials}
-      </div>
+      <BusinessAvatar
+        businessName={business.businessName}
+        logoUrl={business.logoUrl}
+        className="h-10 w-10 shrink-0 text-[12px] font-semibold"
+      />
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-[14px] font-bold leading-tight text-heading">

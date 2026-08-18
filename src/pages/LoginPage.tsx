@@ -7,7 +7,6 @@ import { OrangeDotsLoader } from '../components/ui/OrangeDotsLoader';
 import { OtpBoxesInput } from '../components/ui/OtpBoxesInput';
 import { WizardCard } from '../components/wizard/WizardCard';
 import { completeLoginVerification } from '../lib/completeLoginVerification';
-import { ensureInstantBusinesses, prefetchDashboardForUser } from '../lib/dashboardBusinesses';
 import { withMinimumDelay } from '../lib/withMinimumDelay';
 import { waitForCondition } from '../lib/waitForCondition';
 import {
@@ -17,6 +16,7 @@ import {
   getAuthErrorMessage,
   resetRecaptchaVerifier,
   sendLoginOtp,
+  verifySignupOtp,
 } from '../services/authService';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { auth } from '../firebase';
@@ -35,8 +35,42 @@ interface LoginPageProps {
 
 type LoginStep = 'phone' | 'otp';
 
+const NO_ACCOUNT_MESSAGE =
+  "You don't have an account yet. Please submit a quote request first.";
+
 const inputClass =
   'w-full rounded-lg border border-border py-3 pr-4 pl-10 text-sm text-heading placeholder:text-gray-400 outline-none transition-shadow focus:border-brand focus:ring-2 focus:ring-brand/30';
+
+/** Same sequence as completeSignupVerification's private helper — not exported there. */
+async function waitForVerifiedAuthUser(uid: string): Promise<void> {
+  await auth.authStateReady();
+  await waitForCondition(() => auth.currentUser?.uid === uid);
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) {
+    throw new Error('Authentication failed. Please try again.');
+  }
+  await user.getIdToken();
+}
+
+function getLoginOtpVerifyErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message === NO_ACCOUNT_MESSAGE) {
+    return NO_ACCOUNT_MESSAGE;
+  }
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = String((err as { code: string }).code);
+    switch (code) {
+      case 'auth/invalid-verification-code':
+        return 'Invalid OTP. Please check the code and try again.';
+      case 'auth/code-expired':
+        return 'This code has expired. Tap Resend Code for a new one.';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Please wait a few minutes.';
+      default:
+        break;
+    }
+  }
+  return 'Something went wrong. Please try again.';
+}
 
 export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPageProps) {
   const [step, setStep] = useState<LoginStep>('phone');
@@ -45,6 +79,7 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
   const [phoneNormalized, setPhoneNormalized] = useState('');
   const [lookupPending, setLookupPending] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
+  const [checkingOtp, setCheckingOtp] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +103,6 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
     setPhone(phoneForAuth);
     setPhoneNormalized(phoneId);
     setStep('otp');
-    setLookupPending(true);
     setSendingCode(true);
     lookupFailedRef.current = false;
     docIdRef.current = '';
@@ -76,19 +110,6 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
 
     void (async () => {
       try {
-        const found = await findUserByPhone(phoneForAuth);
-        if (!found) {
-          lookupFailedRef.current = true;
-          setStep('phone');
-          setError("User doesn't exist. Please submit a quote request first.");
-          return;
-        }
-
-        docIdRef.current = found.docId;
-        useDashboardStore.getState().setUser(found.data);
-        ensureInstantBusinesses();
-        void prefetchDashboardForUser(found.data);
-
         const recaptcha = await ensureRecaptchaReady();
         confirmationRef.current = await sendLoginOtp(phoneForAuth, recaptcha);
       } catch (err) {
@@ -105,30 +126,49 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
   };
 
   const handleVerifyOtp = () => {
-    if (otp.trim().length < 6 || verifying) return;
+    if (otp.trim().length < 6 || verifying || checkingOtp) return;
 
     const otpValue = otp.trim();
-    setVerifying(true);
+    setCheckingOtp(true);
     setError(null);
 
     void (async () => {
+      let uid: string;
       try {
-        if (lookupFailedRef.current) {
-          throw new Error('Account lookup failed.');
-        }
-
-        await waitForCondition(() => docIdRef.current || lookupFailedRef.current);
-        if (lookupFailedRef.current || !docIdRef.current) {
-          throw new Error('Account lookup failed.');
-        }
-
         await waitForCondition(() => confirmationRef.current);
+        if (!confirmationRef.current) {
+          throw new Error('Verification session expired. Please try again.');
+        }
+
+        uid = await verifySignupOtp(confirmationRef.current, otpValue);
+      } catch (err) {
+        console.error('OTP verify error:', err);
+        const message = getLoginOtpVerifyErrorMessage(err);
+        setCheckingOtp(false);
+        setOtp('');
+        setError(message);
+        onVerifyFailed?.(message);
+        return;
+      }
+
+      setCheckingOtp(false);
+      setVerifying(true);
+
+      try {
+        await waitForVerifiedAuthUser(uid);
+
+        const found = await findUserByPhone(phone);
+        if (!found) {
+          throw new Error(NO_ACCOUNT_MESSAGE);
+        }
+
+        docIdRef.current = found.docId;
 
         await withMinimumDelay(
           completeLoginVerification({
-            confirmation: confirmationRef.current!,
+            confirmation: confirmationRef.current,
             otp: otpValue,
-            docId: docIdRef.current,
+            docId: found.docId,
             phoneNormalized,
           }),
         );
@@ -136,7 +176,7 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
         onSuccess();
       } catch (err) {
         console.error('OTP verify error:', err);
-        const message = 'Invalid OTP. Please check the code and try again.';
+        const message = getLoginOtpVerifyErrorMessage(err);
         useDashboardStore.getState().clear();
         clearSession();
         try {
@@ -146,19 +186,24 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
         }
         setVerifying(false);
         setError(message);
-        onVerifyFailed?.(message);
+        if (message === NO_ACCOUNT_MESSAGE) {
+          setStep('phone');
+        } else {
+          onVerifyFailed?.(message);
+        }
       }
     })();
   };
 
   const handleChangePhone = () => {
-    if (verifying) return;
+    if (verifying || checkingOtp) return;
 
     setStep('phone');
     setOtp('');
     setError(null);
     setSendingCode(false);
     setLookupPending(false);
+    setCheckingOtp(false);
     setVerifying(false);
     lookupFailedRef.current = false;
     docIdRef.current = '';
@@ -219,7 +264,7 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
                     setPhone(e.target.value);
                     setError(null);
                   }}
-                  placeholder="03XX XXXXXXX, +92 3XX…, 04XX XXX XXX, or +61…"
+                  placeholder="04XX XXX XXX"
                   className={inputClass}
                 />
               </div>
@@ -283,7 +328,7 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
               disabled={!isValidPhoneInput(phone)}
               className="relative mt-6 flex w-full items-center justify-center rounded-lg py-3.5 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:bg-brand-muted enabled:bg-brand enabled:hover:bg-[#d96f42] enabled:active:bg-[#c9653a]"
             >
-              Send OTP
+              Login
               <ArrowRight
                 className="absolute right-4 h-4 w-4"
                 strokeWidth={2}
@@ -306,14 +351,20 @@ export function LoginPage({ onSuccess, onNewUser, onVerifyFailed }: LoginPagePro
             <button
               type="button"
               onClick={handleVerifyOtp}
-              disabled={otp.length < 6 || lookupPending || sendingCode}
+              disabled={otp.length < 6 || lookupPending || sendingCode || checkingOtp}
               className="relative mt-6 flex w-full items-center justify-center rounded-lg py-3.5 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:bg-brand-muted enabled:bg-brand enabled:hover:bg-[#d96f42] enabled:active:bg-[#c9653a]"
             >
-              Verify
-              <ArrowRight
-                className="absolute right-4 h-4 w-4"
-                strokeWidth={2}
-              />
+              {checkingOtp ? (
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+              ) : (
+                <>
+                  Verify
+                  <ArrowRight
+                    className="absolute right-4 h-4 w-4"
+                    strokeWidth={2}
+                  />
+                </>
+              )}
             </button>
 
             <button

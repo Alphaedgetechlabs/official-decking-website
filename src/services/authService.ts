@@ -206,8 +206,10 @@ export async function verifyLoginOtp(
   docId: string,
   phoneNormalized: string,
 ): Promise<string> {
-  const result = await confirmation.confirm(otp);
-  const uid = result.user.uid;
+  // Login confirms OTP before the users lookup; skip a second confirm() if
+  // Auth is already signed in for this session.
+  const uid =
+    auth.currentUser?.uid ?? (await confirmation.confirm(otp)).user.uid;
 
   await updateDoc(doc(db, USERS_COLLECTION, docId), {
     uid,

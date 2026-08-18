@@ -18,7 +18,6 @@ import {
   parseQuoteQueryInit,
   type QuoteFormStep,
 } from "@/lib/quoteQueryInit";
-import { cachePrefetchedBusinesses } from "@/lib/optimisticSignup";
 import { ensureInstantBusinesses } from "@/lib/dashboardBusinesses";
 import { withMinimumDelay } from "@/lib/withMinimumDelay";
 import { Suburb } from "@/data/formData";
@@ -27,7 +26,6 @@ import {
   getAuthErrorMessage,
   resetRecaptchaVerifier,
 } from "@/services/authService";
-import { fetchRandomBusinesses } from "@/services/businessService";
 import { brandName, tradeLabelTitle } from "@/config/brandDomain";
 import { formatPhoneForAuth } from "@/utils/phone";
 import type { PostedNotificationsPayload, StaggerAcceptPlan } from "@/services/jobService";
@@ -42,9 +40,9 @@ type MatchingReadyResult = {
 
 function QuoteFlow() {
   useDocumentTitle(`Get Your Free ${tradeLabelTitle} Quote — ${brandName}`);
-  const { updateFormData, setStep: setWizardStep, setMatchedBusinesses } = useWizard();
+  const { updateFormData, setStep: setWizardStep } = useWizard();
   const confirmationRef = useOtpConfirmationRef();
-  const { handleSendOtp, handleResendOtp, handleVerifyOtp } =
+  const { handleSendOtp, handleResendOtp, verifyOtpOnly, runPostVerification } =
     useSignupOtpHandlers(confirmationRef);
 
   const [boot] = useState(() =>
@@ -92,18 +90,6 @@ function QuoteFlow() {
     setOtpModalOpen(true);
     ensureInstantBusinesses();
 
-    // Best-effort only — businesses require auth; real match runs after OTP.
-    void fetchRandomBusinesses(3)
-      .then((businesses) => {
-        if (businesses.length) {
-          setMatchedBusinesses(businesses);
-          cachePrefetchedBusinesses(businesses);
-        }
-      })
-      .catch((err) => {
-        console.warn('Pre-auth business prefetch skipped:', err);
-      });
-
     void handleSendOtp(phoneE164).catch(async (err) => {
       console.error("OTP send error:", err);
       await resetRecaptchaVerifier();
@@ -117,11 +103,21 @@ function QuoteFlow() {
     });
   };
 
-  const handleVerify = (otp: string) => {
+  const handleVerify = async (otp: string) => {
     setOtpError(null);
+
+    let uid: string;
+    try {
+      uid = await verifyOtpOnly(otp);
+    } catch (err) {
+      console.error("Exact OTP Error: ", err);
+      setOtpError(getSignupOtpVerifyErrorMessage(err));
+      throw err;
+    }
+
     setOtpModalOpen(false);
 
-    const promise = withMinimumDelay(handleVerifyOtp(otp));
+    const promise = withMinimumDelay(runPostVerification(uid));
     setMatchingPromise(promise);
     setWizardStep(5);
     setStep("matching");
@@ -136,7 +132,7 @@ function QuoteFlow() {
       setMatchingPromise(undefined);
       setWizardStep(4);
       setStep("contact");
-      const message = getSignupOtpVerifyErrorMessage(err);
+      const message = "Unable to complete your request. Please try again.";
       setOtpError(message);
       setOtpModalOpen(true);
       toast.error(message);
@@ -153,6 +149,13 @@ function QuoteFlow() {
       setOtpError(message);
       throw err;
     }
+  };
+
+  const handleChangeNumber = () => {
+    setOtpModalOpen(false);
+    setOtpError(null);
+    confirmationRef.current = null;
+    void resetRecaptchaVerifier();
   };
 
   switch (step) {
@@ -203,6 +206,7 @@ function QuoteFlow() {
             phoneDisplay={phoneDisplay}
             onVerify={handleVerify}
             onResend={handleResend}
+            onChangeNumber={handleChangeNumber}
             error={otpError}
             onClearError={() => setOtpError(null)}
           />

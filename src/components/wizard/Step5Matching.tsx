@@ -118,12 +118,6 @@ function resolveUserId(user: UserDocument | null, formPhone: string): string {
   }
 }
 
-function ordinalAcceptLabel(count: number): string {
-  if (count === 1) return 'first';
-  if (count === 2) return 'second';
-  return 'third';
-}
-
 function pickNewestRealJob(jobs: UserJobListItem[]): UserJobListItem | null {
   const real = jobs
     .filter((job) => job.id && job.id !== 'signup-job')
@@ -632,45 +626,37 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
   const skeletonCount = Math.max(0, TARGET_MATCH_SLOTS - visibleContractors.length);
   const isFullSuccess = exitMode === 'full';
 
-  // Orange top banner — hidden until job is posted. "Congratulations!" when chain finished.
+  // Orange top banner — always visible; copy changes by revealed accept count.
   const orangeBannerText = (() => {
-    if (!jobPosted) return null;
-    if (isFullSuccess) return 'Congratulations!';
-    if (phase === 'accepting' || revealedCount > 0) return 'Job Post Accepted';
-    return `Hi ${firstName}, your ${tradeLabelTitle} Job has been posted`;
+    if (revealedCount >= 3) return `You've matched with 3 ${tradeLabelTitle} businesses`;
+    if (revealedCount >= 2) return `Another ${tradeLabelTitle} business has accepted your project`;
+    if (revealedCount >= 1) return `A ${tradeLabelTitle} business has accepted your project`;
+    return `Hi ${firstName}, your ${tradeLabel} job has been posted`;
   })();
 
   const headline = (() => {
-    if (isFullSuccess) return "It's easy to Get 3 quotes now";
-    if (phase === 'accepting' && revealedCount > 0) {
-      return `Congratulations ${firstName}, ${ordinalAcceptLabel(revealedCount)} contractor to accept your job post`;
+    if (isFullSuccess || (phase === 'accepting' && revealedCount > 0)) {
+      if (revealedCount >= 3) return `You now have 3 local ${tradeLabel} professionals ready to discuss your project`;
+      if (revealedCount >= 2) return `Great news, ${firstName}! You now have 2 local businesses to compare`;
+      return `Great news, ${firstName}! Your first local ${tradeLabel} professional is ready to discuss your project.`;
     }
-    return `We're finding the best ${tradeLabel} contractors near you...`;
+    return `We're now looking for local ${tradeLabel} professionals near you...`;
   })();
 
-  const footerPrimary = (() => {
-    if (isFullSuccess) {
-      return 'Your quotes could arrive in the next 3–7 minutes.';
-    }
-    if (phase === 'accepting') {
-      return revealedCount >= 2
-        ? 'Talk to the contractors as soon as you can so you can get your quotes in time.'
-        : 'Talk to your first contractor to give you a quote as soon as possible.';
-    }
-    return `Don't worry ${firstName} we're working hard to get you quotes as soon as we can.`;
-  })();
 
   const bannerTitle = showCompleteBanner
     ? 'Your quotes are being prepared now!'
     : phase === 'accepting'
       ? revealedCount >= 2
-        ? "Don't worry one more to go and we're working even harder."
-        : "Don't worry we're working even harder to find you more contractors."
+        ? "We're still looking for one more suitable local business."
+        : revealedCount >= 1
+          ? "We're continuing to look for more suitable businesses so you can compare your options."
+          : null
       : null;
 
   const bannerSubtitle =
-    showCompleteBanner && isFullSuccess
-      ? `We've matched you with ${TARGET_MATCH_SLOTS} top-rated ${tradeLabel} contractors in your area. You'll receive your quotes shortly.`
+    showCompleteBanner && revealedCount >= 3
+      ? "Compare your options and choose the professional that's right for your project."
       : showCompleteBanner
         ? 'You can message your matched contractors from Home.'
         : null;
@@ -733,12 +719,11 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
 
       {!showFeatures && (
         <div className="mt-4 text-center">
-          <p className="text-xs text-body">{footerPrimary}</p>
-          <p className="mt-1 text-xs text-body">Keep an eye on your phone.</p>
+          <p className="text-xs text-body">Keep an eye on your phone.</p>
         </div>
       )}
 
-      {showFeatures && variant !== 'addJob' && isFullSuccess && (
+      {showFeatures && variant !== 'addJob' && revealedCount >= 3 && (
         <div className="mt-6 animate-[fadeInUp_0.5s_ease-out_forwards] opacity-0">
           <div className="grid grid-cols-4 gap-2">
             {FEATURES.map(({ icon: Icon, label }) => (
@@ -754,10 +739,7 @@ export function Step5Matching({ onComplete, readyPromise }: Step5MatchingProps) 
           </div>
 
           <div className="mt-6 text-center">
-            <p className="text-sm font-bold text-heading">
-              Your quotes could arrive in the next 3–7 minutes.
-            </p>
-            <p className="mt-1 text-xs text-body">Keep an eye on your phone.</p>
+            <p className="text-xs text-body">Keep an eye on your phone.</p>
           </div>
         </div>
       )}

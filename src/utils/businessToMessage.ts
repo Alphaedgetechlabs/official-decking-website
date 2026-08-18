@@ -40,5 +40,6 @@ export function businessToMessageItem(
     initials,
     avatarBg,
     avatarText,
+    logoUrl: business.logoUrl ?? null,
   };
 }

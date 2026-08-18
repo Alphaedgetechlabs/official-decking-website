@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { MessageItem } from '../../data/messages';
 import { useChatStore } from '../../stores/chatStore';
 import { formatPresenceLabel } from '../../utils/formatRelativeTime';
+import { BusinessAvatar } from '../ui/BusinessAvatar';
 import { MessageBubble } from './MessageBubble';
 import { PendingMediaBubble } from './PendingMediaBubble';
 
@@ -20,11 +21,14 @@ interface LocalAttachmentDraft {
 
 function ContactAvatar({ contact }: { contact: MessageItem }) {
   return (
-    <div
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${contact.avatarBg} ${contact.avatarText}`}
-    >
-      {contact.initials}
-    </div>
+    <BusinessAvatar
+      businessName={contact.name}
+      logoUrl={contact.logoUrl}
+      initialsOverride={contact.initials}
+      avatarBgOverride={contact.avatarBg}
+      avatarTextOverride={contact.avatarText}
+      className="h-10 w-10 shrink-0 text-[12px] font-bold"
+    />
   );
 }
 
