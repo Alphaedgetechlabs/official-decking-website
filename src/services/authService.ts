@@ -51,6 +51,8 @@ export function getAuthErrorMessage(err: unknown, fallback: string): string {
         return 'Please enter a valid phone number.';
       case 'auth/invalid-app-credential':
         return 'Firebase app credential error. Check API key, authorized domains, and reCAPTCHA in Firebase Console.';
+      case 'auth/network-request-failed':
+        return 'Network error. Check your connection and try again.';
       default:
         return `${fallback} (${code})`;
     }
@@ -204,8 +206,10 @@ export async function verifyLoginOtp(
   docId: string,
   phoneNormalized: string,
 ): Promise<string> {
-  const result = await confirmation.confirm(otp);
-  const uid = result.user.uid;
+  // Login confirms OTP before the users lookup; skip a second confirm() if
+  // Auth is already signed in for this session.
+  const uid =
+    auth.currentUser?.uid ?? (await confirmation.confirm(otp)).user.uid;
 
   await updateDoc(doc(db, USERS_COLLECTION, docId), {
     uid,

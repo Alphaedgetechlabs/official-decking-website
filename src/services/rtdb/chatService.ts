@@ -17,6 +17,7 @@ import { rtdb } from '../../firebase';
 import {
   CHAT_PATHS,
   MESSAGES_PAGE_SIZE,
+  type ChatMediaPayload,
   type MessageStatus,
   type RtdbChatMessage,
   type SenderType,
@@ -28,19 +29,42 @@ interface RawMessage {
   text: string;
   timestamp: number;
   status: MessageStatus;
+  mediaUrl?: string;
+  mediaType?: string;
+  thumbnailUrl?: string;
+  thumbnail?: string;
+  fileName?: string;
+}
+
+function normalizeMediaType(
+  mediaType: string | undefined,
+): ChatMediaPayload['mediaType'] | undefined {
+  if (!mediaType) return undefined;
+  if (mediaType === 'image' || mediaType === 'video') return mediaType;
+  if (mediaType === 'document' || mediaType === 'file' || mediaType === 'doc') {
+    return 'document';
+  }
+  return undefined;
 }
 
 function parseMessage(snapshot: DataSnapshot): RtdbChatMessage | null {
   const value = snapshot.val() as RawMessage | null;
-  if (!value?.text) return null;
+  if (!value || (!value.text && !value.mediaUrl)) return null;
+
+  const mediaType = normalizeMediaType(value.mediaType);
+  const thumbnailUrl = value.thumbnailUrl || value.thumbnail;
 
   return {
     id: snapshot.key ?? '',
     senderId: value.senderId,
     senderType: value.senderType,
-    text: value.text,
+    text: value.text ?? '',
     timestamp: value.timestamp ?? Date.now(),
     status: value.status ?? 'sent',
+    ...(value.mediaUrl && { mediaUrl: value.mediaUrl }),
+    ...(mediaType && { mediaType }),
+    ...(thumbnailUrl && { thumbnailUrl }),
+    ...(value.fileName && { fileName: value.fileName }),
   };
 }
 
@@ -128,9 +152,10 @@ export async function sendMessage(
   senderType: SenderType,
   text: string,
   initialStatus: MessageStatus = 'sent',
+  media?: ChatMediaPayload,
 ): Promise<RtdbChatMessage> {
   const trimmed = text.trim();
-  if (!trimmed) throw new Error('Message cannot be empty');
+  if (!trimmed && !media) throw new Error('Message cannot be empty');
 
   const messagesRef = ref(rtdb, CHAT_PATHS.messages(chatId));
   const newRef = push(messagesRef);
@@ -143,12 +168,24 @@ export async function sendMessage(
     text: trimmed,
     timestamp: Date.now(),
     status: initialStatus,
+    ...(media?.mediaUrl && { mediaUrl: media.mediaUrl }),
+    ...(media?.mediaType && { mediaType: media.mediaType }),
+    ...(media?.thumbnailUrl && { thumbnailUrl: media.thumbnailUrl }),
+    ...(media?.fileName && { fileName: media.fileName }),
   };
 
   await set(newRef, payload);
 
+  const lastMessagePreview =
+    trimmed ||
+    (media?.mediaType === 'image'
+      ? 'Photo'
+      : media?.mediaType === 'video'
+        ? 'Video'
+        : media?.fileName ?? 'Document');
+
   await update(ref(rtdb, CHAT_PATHS.meta(chatId)), {
-    lastMessage: trimmed,
+    lastMessage: lastMessagePreview,
     lastMessageAt: payload.timestamp,
     lastSenderType: senderType,
   });

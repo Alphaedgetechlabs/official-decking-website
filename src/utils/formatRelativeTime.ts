@@ -69,7 +69,12 @@ export function formatPresenceLabel(presence: {
   online: boolean;
   last_active: number | null;
 }): string {
-  if (presence.online) return 'Online';
-  if (!presence.last_active) return 'Offline';
-  return `Last seen ${formatRelativeTime(presence.last_active)}`;
+  return presence.online ? 'Online' : 'Offline';
+}
+
+export function formatAdminSupportPresenceLabel(presence: {
+  isOnline: boolean;
+  lastSeen: number | null;
+}): string {
+  return presence.isOnline ? 'Online' : 'Offline';
 }

@@ -8,6 +8,10 @@ import { filterRealBusinessIds } from '../lib/optimisticSignup';
 import { useDashboardStore } from '../stores/dashboardStore';
 import type { UserDocument } from '../types/user';
 
+/**
+ * IDs for dashboard / messages / add-job prefetch.
+ * Home job-card slots no longer use this list — they listen to jobs/{id}.acceptedBy.
+ */
 function resolveMatchedBusinessIds(
   jobs: UserJobListItem[],
   user: UserDocument | null,

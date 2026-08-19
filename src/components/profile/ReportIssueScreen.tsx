@@ -95,7 +95,9 @@ export function ReportIssueScreen({ job, onBack }: ReportIssueScreenProps) {
                 <Fence className="h-[18px] w-[18px] text-brand" strokeWidth={1.75} />
               </div>
               <div className="min-w-0">
-                <p className="text-[14px] font-bold text-heading">{job.title}</p>
+                <p className="text-[14px] font-bold text-heading">
+                  {job.title}
+                </p>
                 <p className="mt-0.5 text-[12px] text-body">
                   {job.location || 'Location pending'} • {job.createdDate}
                 </p>

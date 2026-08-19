@@ -1,4 +1,6 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
+import { sanitizeQueryValue } from "@/utils/sanitizeQueryValue";
 import { Clock, ArrowLeft, ArrowRight, FileText, Upload, X } from "lucide-react";
 
 interface DescriptionStepProps {
@@ -8,10 +10,33 @@ interface DescriptionStepProps {
 }
 
 const DescriptionStep = ({ trade, onNext, onBack }: DescriptionStepProps) => {
-  const [description, setDescription] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [description, setDescription] = useState(() =>
+    sanitizeQueryValue(searchParams.get("description") ?? ""),
+  );
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tradeLower = trade.toLowerCase();
+
+  useEffect(() => {
+    const fromUrl = sanitizeQueryValue(searchParams.get("description") ?? "");
+    setDescription((prev) => (prev === fromUrl ? prev : fromUrl));
+  }, [searchParams]);
+
+  useEffect(() => {
+    const fromUrl = sanitizeQueryValue(searchParams.get("description") ?? "");
+    if (description === fromUrl) return;
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (description) next.set("description", description);
+        else next.delete("description");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [description, searchParams, setSearchParams]);
 
   const handleFiles = (newFiles: FileList | null) => {
     if (!newFiles) return;
@@ -64,7 +89,7 @@ const DescriptionStep = ({ trade, onNext, onBack }: DescriptionStepProps) => {
             onChange={(e) => setDescription(e.target.value)}
           />
           <p className="mt-3 text-sm text-muted-foreground">
-            Example: "Build 20sqm timber deck in backyard. Standard height. Include stairs."
+            Example: "Need a new {tradeLower} installed along the side boundary. Approx 12m. Include gate."
           </p>
         </section>
 
