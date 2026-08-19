@@ -1,6 +1,5 @@
-// Bump these whenever branding/jobType lock changes so stale JS isn't served.
-const CACHE_NAME = 'app-v2';
-const STATIC_CACHE = 'app-static-v2';
+const CACHE_NAME = 'quotemydeck-v1';
+const STATIC_CACHE = 'quotemydeck-static-v1';
 
 // Assets to pre-cache on install
 const PRECACHE_ASSETS = [

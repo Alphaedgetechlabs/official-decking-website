@@ -94,7 +94,7 @@ export function Step1Location() {
         <span>
           We&apos;ll instantly match you with{' '}
           <strong className="font-semibold text-brand">
-            verified local {tradeLabel} pros
+            verified local decking professionals
           </strong>{' '}
           who are available right now.
         </span>
@@ -127,7 +127,7 @@ export function Step1Location() {
             <strong className="font-semibold text-heading">
               1000&apos;s of Aussie homeowners
             </strong>{' '}
-            looking for fast, reliable {tradeLabel} quotes.
+            looking for fast, reliable quotes.
           </p>
         </div>
       </div>

@@ -15,51 +15,40 @@ interface ContactStepProps {
 const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 const validateName = (name: string) => !/\d/.test(name.trim());
 
+// Randomised, meaningless field names defeat Chrome/Edge autofill heuristics
+// and password-manager scanners (they key off name/id/autocomplete tokens).
+const randomFieldName = () => `f-${Math.random().toString(36).slice(2, 10)}`;
+
+// Keep a leading "+" for international entry, drop every other non-digit.
+const sanitizePhoneInput = (value: string) => {
+  const plus = value.trimStart().startsWith("+") ? "+" : "";
+  return plus + value.replace(/\D/g, "");
+};
+
+// Applied to every input: tells Chrome/Edge, LastPass, 1Password and Bitwarden
+// to leave the field alone.
+const noAutofillProps = {
+  autoComplete: "new-password" as const,
+  autoCorrect: "off",
+  autoSave: "off",
+  spellCheck: false,
+  "data-lpignore": "true",
+  "data-1p-ignore": "true",
+  "data-bwignore": "true",
+  "data-form-type": "other",
+};
+
 const ContactStep = ({ onNext, onBack, error, onClearError }: ContactStepProps) => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [name, setName] = useState(() =>
-    sanitizeQueryValue(searchParams.get("name") ?? ""),
-  );
-  const [email, setEmail] = useState(() =>
-    sanitizeQueryValue(searchParams.get("email") ?? ""),
-  );
-  const [phone, setPhone] = useState(() =>
-    sanitizeQueryValue(searchParams.get("phone") ?? ""),
-  );
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [touched, setTouched] = useState({ name: false, email: false, phone: false });
   const [submitted, setSubmitted] = useState(false);
-
-  // URL → fields (deep link / refresh / shared link)
-  useEffect(() => {
-    const nameParam = sanitizeQueryValue(searchParams.get("name") ?? "");
-    const emailParam = sanitizeQueryValue(searchParams.get("email") ?? "");
-    const phoneParam = sanitizeQueryValue(searchParams.get("phone") ?? "");
-    setName((prev) => (prev === nameParam ? prev : nameParam));
-    setEmail((prev) => (prev === emailParam ? prev : emailParam));
-    setPhone((prev) => (prev === phoneParam ? prev : phoneParam));
-  }, [searchParams]);
-
-  // fields → URL (so a shared link auto-fills step 4 without submitting)
-  useEffect(() => {
-    const nameParam = sanitizeQueryValue(searchParams.get("name") ?? "");
-    const emailParam = sanitizeQueryValue(searchParams.get("email") ?? "");
-    const phoneParam = sanitizeQueryValue(searchParams.get("phone") ?? "");
-    if (name === nameParam && email === emailParam && phone === phoneParam) return;
-
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (name) next.set("name", name);
-        else next.delete("name");
-        if (email) next.set("email", email);
-        else next.delete("email");
-        if (phone) next.set("phone", phone);
-        else next.delete("phone");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [name, email, phone, searchParams, setSearchParams]);
+  const [fieldIds] = useState(() => ({
+    name: randomFieldName(),
+    email: randomFieldName(),
+    phone: randomFieldName(),
+  }));
 
   const errors = {
     name: !name.trim() ? "Please enter your name" : !validateName(name) ? "Please enter your correct name" : "",
@@ -98,12 +87,16 @@ const ContactStep = ({ onNext, onBack, error, onClearError }: ContactStepProps) 
             Almost done! Your quotes are just minutes away.
           </h1>
           <p className="text-muted-foreground text-lg">
-            Enter your details so your {tradeLabel} pros can send accurate pricing.
+            Enter your details so your decking professionals can send accurate pricing.
           </p>
         </header>
 
         {/* Form */}
         <form
+          id="quote-contact-form"
+          name="quote-contact-form"
+          autoComplete="off"
+          data-form-type="other"
           onSubmit={async (e) => {
             e.preventDefault();
             setSubmitted(true);
@@ -113,15 +106,20 @@ const ContactStep = ({ onNext, onBack, error, onClearError }: ContactStepProps) 
           noValidate
         >
           <div className="space-y-2">
-            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor="full-name">
+            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor={fieldIds.name}>
               <User className="w-4 h-4 mr-2" />
               Full Name
             </label>
             <input
               className={inputClass("name")}
-              id="full-name"
+              id={fieldIds.name}
+              name={fieldIds.name}
               placeholder="John Smith"
               type="text"
+              inputMode="text"
+              maxLength={100}
+              autoCapitalize="words"
+              {...noAutofillProps}
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
@@ -133,15 +131,20 @@ const ContactStep = ({ onNext, onBack, error, onClearError }: ContactStepProps) 
           </div>
 
           <div className="space-y-2">
-            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor="email">
+            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor={fieldIds.email}>
               <Mail className="w-4 h-4 mr-2" />
               Email Address
             </label>
             <input
               className={inputClass("email")}
-              id="email"
+              id={fieldIds.email}
+              name={fieldIds.email}
               placeholder="john@example.com"
               type="email"
+              inputMode="email"
+              maxLength={255}
+              autoCapitalize="off"
+              {...noAutofillProps}
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
@@ -153,19 +156,22 @@ const ContactStep = ({ onNext, onBack, error, onClearError }: ContactStepProps) 
           </div>
 
           <div className="space-y-2">
-            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor="phone">
+            <label className="flex items-center text-foreground font-semibold text-sm" htmlFor={fieldIds.phone}>
               <Phone className="w-4 h-4 mr-2" />
               Best Phone Number
             </label>
             <input
               className={inputClass("phone")}
-              id="phone"
+              id={fieldIds.phone}
+              name={fieldIds.phone}
               type="tel"
               inputMode="tel"
-              autoComplete="tel"
+              maxLength={20}
+              autoCapitalize="off"
+              {...noAutofillProps}
               value={phone}
               onChange={(e) => {
-                setPhone(e.target.value);
+                setPhone(sanitizePhoneInput(e.target.value));
                 onClearError?.();
               }}
               onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
@@ -173,6 +179,7 @@ const ContactStep = ({ onNext, onBack, error, onClearError }: ContactStepProps) 
             />
             {show("phone") && <p className="text-destructive text-sm mt-1">{errors.phone}</p>}
           </div>
+
 
           {/* Trust */}
           <div className="space-y-3 pt-4">

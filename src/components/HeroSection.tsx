@@ -22,7 +22,7 @@ const HeroSection = () => {
           src={heroDeck}
           alt={`Professional ${tradeLabel} installation`}
           className="w-full h-full object-cover"
-          fetchPriority="high"
+          {...{ fetchpriority: "high" }}
           decoding="sync"
           loading="eager"
           width={1920}

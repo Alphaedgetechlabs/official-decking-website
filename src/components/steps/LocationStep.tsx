@@ -68,9 +68,11 @@ function StaticSuburbInput({
             <button
               key={`${suburb.name}-${suburb.state}-${i}`}
               type="button"
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
+                // onSelect owns both the selection and the input text; calling
+                // onQueryChange here would clear the selection again.
                 onSelect(suburb);
-                onQueryChange(`${suburb.name}, ${suburb.state}, ${suburb.postcode}`);
                 setShowDropdown(false);
               }}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-brand-orange-light transition-colors text-left"
@@ -160,7 +162,7 @@ const LocationStep = ({ trade, onNext }: LocationStepProps) => {
               </svg>
             </div>
             <p className="text-muted-foreground text-lg">
-              We'll instantly match you with <span className="text-brand-orange font-semibold">verified local {tradeLower} pros</span> who are available right now.
+              We'll instantly match you with <span className="text-brand-orange font-semibold">verified local {tradeLower} professionals</span> who are available right now.
             </p>
           </div>
 
@@ -178,7 +180,10 @@ const LocationStep = ({ trade, onNext }: LocationStepProps) => {
                   setStaticSuburb(null);
                 }}
                 selectedSuburb={staticSuburb}
-                onSelect={setStaticSuburb}
+                onSelect={(suburb) => {
+                  setStaticSuburb(suburb);
+                  setQuery(`${suburb.name}, ${suburb.state}, ${suburb.postcode}`);
+                }}
               />
             ) : (
               <AustraliaLocationAutocomplete
@@ -210,7 +215,7 @@ const LocationStep = ({ trade, onNext }: LocationStepProps) => {
             <div>
               <h3 className="font-bold text-foreground text-lg mb-1">Local Expertise</h3>
               <p className="text-muted-foreground">
-                Trusted by <span className="font-bold text-foreground">1000's of Aussie homeowners</span> looking for fast, reliable {tradeLower} quotes.
+                Trusted by <span className="font-bold text-foreground">1000's of Aussie homeowners</span> looking for fast, reliable quotes.
               </p>
             </div>
           </div>

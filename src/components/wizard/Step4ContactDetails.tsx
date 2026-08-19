@@ -98,12 +98,12 @@ export function Step4ContactDetails({
       <StepShell>
         <ProgressHeader step={4} />
 
-        <h1 className="text-2xl font-bold leading-tight text-heading sm:text-[1.65rem]">
-          Almost done! Your quotes are just minutes away.
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-body">
-          Enter your details so your {tradeLabel} pros can send accurate pricing.
-        </p>
+      <h1 className="text-2xl font-bold leading-tight text-heading sm:text-[1.65rem]">
+        Almost done! Your quotes are just minutes away.
+      </h1>
+      <p className="mt-2 text-sm leading-relaxed text-body">
+        Enter your details so your decking professionals can send accurate pricing.
+      </p>
 
         <div className="mt-6 space-y-4">
           <div>
