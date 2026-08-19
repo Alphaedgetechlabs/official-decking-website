@@ -70,7 +70,7 @@ export function Step4ContactDetails({
     });
   };
 
-  const handleVerify = (otp: string) => {
+  const handleVerify = async (otp: string) => {
     setOtpModalOpen(false);
     setOtpError(null);
     onVerificationStart(otp);
@@ -84,6 +84,12 @@ export function Step4ContactDetails({
       setOtpError('Failed to resend OTP. Please try again.');
       throw err;
     }
+  };
+
+  const handleChangeNumber = () => {
+    setOtpModalOpen(false);
+    setOtpError(null);
+    void resetRecaptchaVerifier();
   };
 
   const inputClass =
@@ -212,6 +218,7 @@ export function Step4ContactDetails({
         phoneDisplay={phoneDisplay}
         onVerify={handleVerify}
         onResend={handleResend}
+        onChangeNumber={handleChangeNumber}
         error={otpError}
         onClearError={() => setOtpError(null)}
       />
