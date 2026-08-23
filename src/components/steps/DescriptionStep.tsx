@@ -64,7 +64,7 @@ const DescriptionStep = ({ trade, onNext, onBack }: DescriptionStepProps) => {
             onChange={(e) => setDescription(e.target.value)}
           />
           <p className="mt-3 text-sm text-muted-foreground">
-            Example: "Build 20sqm timber deck in backyard. Standard height. Include stairs."
+            Example: "Need a new {tradeLower} installed along the side boundary. Approx 12m²."
           </p>
         </section>
 
