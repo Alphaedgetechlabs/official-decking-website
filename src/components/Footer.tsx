@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Phone, Mail, MapPin, Facebook, Twitter, Instagram, Linkedin } from "lucide-react";
 import { Link } from "react-router-dom";
-import logoIcon from "@/assets/quotemyfence-logo-icon.webp";
+import BrandLogo from "@/components/BrandLogo";
 const Footer = () => {
   const [email, setEmail] = useState("");
   const navigate = useNavigate();
