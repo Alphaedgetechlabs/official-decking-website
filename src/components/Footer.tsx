@@ -106,12 +106,10 @@ const Footer = () => {
           {/* Company Info */}
           <div className="space-y-6">
             <div>
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="w-8 h-8 flex items-center justify-center">
-                  <img src={logoIcon} alt="QuoteMyDeck" className="w-8 h-8 object-contain" />
-                </div>
-                <div className="text-xl font-bold">QuoteMyDeck</div>
+              <div className="flex items-center mb-4">
+                <BrandLogo variant="light" className="text-[26px]" />
               </div>
+
               <p className="text-primary-foreground/80 text-sm">
                 Australia's leading platform for connecting homeowners with trusted deck builders. 
                 Get competitive quotes and quality installations nationwide.
