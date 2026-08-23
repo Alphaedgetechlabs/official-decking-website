@@ -107,7 +107,7 @@ const Footer = () => {
           <div className="space-y-6">
             <div>
               <div className="flex items-center mb-4">
-                <BrandLogo variant="light" className="text-[26px]" />
+                <BrandLogo variant="light" className="text-[18px]" showArrow={false} />
               </div>
 
               <p className="text-primary-foreground/80 text-sm">
