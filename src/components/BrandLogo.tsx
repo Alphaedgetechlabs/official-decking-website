@@ -39,12 +39,14 @@ const BrandLogo = ({ variant = "dark", className = "", fontSize, showArrow = tru
         </span>
         <span style={{ color: isLight ? "#FFFFFF" : "#333333", fontWeight: 700 }}>Decking</span>
       </span>
-      <img
-        src={arrowAsset.url}
-        alt=""
-        aria-hidden="true"
-        className="ml-[0.5cm] h-[1.08em] w-auto"
-      />
+      {showArrow && (
+        <img
+          src={arrowAsset.url}
+          alt=""
+          aria-hidden="true"
+          className="ml-[0.5cm] h-[1.08em] w-auto"
+        />
+      )}
     </span>
   );
 };
