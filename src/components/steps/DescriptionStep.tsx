@@ -59,7 +59,7 @@ const DescriptionStep = ({ trade, onNext, onBack }: DescriptionStepProps) => {
           <textarea
             className="w-full h-40 p-5 border-2 border-brand-orange rounded-xl focus:ring-0 focus:outline-none text-foreground text-base sm:text-lg resize-none bg-card"
             id="job-description"
-            placeholder={`e.g. Replace broken wooden ${tradeLower} along the backyard`}
+            placeholder={`e.g. Replace broken timber ${tradeLower} in the backyard`}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
