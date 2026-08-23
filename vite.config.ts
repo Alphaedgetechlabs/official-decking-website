@@ -12,8 +12,14 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean) as PluginOption[],
   resolve: {
+    // Keep hooks and the renderer on one React instance, including after
+    // Vite re-optimizes dependencies during preview HMR.
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  optimizeDeps: {
+    include: ["react", "react-dom", "react/jsx-runtime", "react-router-dom"],
   },
 }));
