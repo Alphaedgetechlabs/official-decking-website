@@ -34,6 +34,9 @@ export default defineConfig({
     allowedHosts: ["127.0.0.1", "retainingwall.local", "fencing.local", "decking.local", "landscaping.local"],
   },
   resolve: {
+    // Keep hooks and the renderer on one React instance, including after
+    // Vite re-optimizes dependencies during preview HMR.
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": path.resolve(__dirname, "./src"),   // jo pehle se hai
     },
@@ -42,4 +45,7 @@ export default defineConfig({
   optimizeDeps: {                              // ← ADD
     include: ["react", "react-dom", "input-otp"],
   },
-});
+  optimizeDeps: {
+    include: ["react", "react-dom", "react/jsx-runtime", "react-router-dom"],
+  },
+}));
