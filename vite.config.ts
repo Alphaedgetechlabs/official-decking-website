@@ -38,14 +38,16 @@ export default defineConfig({
     // Vite re-optimizes dependencies during preview HMR.
     dedupe: ["react", "react-dom"],
     alias: {
-      "@": path.resolve(__dirname, "./src"),   // jo pehle se hai
+      "@": path.resolve(__dirname, "./src"),
     },
-    dedupe: ["react", "react-dom"],            // ← ADD
-  },
-  optimizeDeps: {                              // ← ADD
-    include: ["react", "react-dom", "input-otp"],
   },
   optimizeDeps: {
-    include: ["react", "react-dom", "react/jsx-runtime", "react-router-dom"],
+    include: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react-router-dom",
+      "input-otp",
+    ],
   },
-}));
+});
