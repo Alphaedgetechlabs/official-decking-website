@@ -9,6 +9,23 @@ interface BusinessMessagesListProps {
   onOpenChat: (businessId: string) => void;
 }
 
+function EmptyBusinessChats() {
+  return (
+    <div className="rounded-xl border border-border bg-white py-12 text-center">
+      <MessageSquare
+        className="mx-auto h-8 w-8 text-body"
+        strokeWidth={1.5}
+      />
+      <p className="mt-3 text-[14px] font-medium text-heading">
+        No conversations yet
+      </p>
+      <p className="mt-1 px-4 text-[12px] text-body">
+        They’ll appear when a tradie accepts your job.
+      </p>
+    </div>
+  );
+}
+
 export function BusinessMessagesList({
   messages,
   loading,
@@ -31,32 +48,33 @@ export function BusinessMessagesList({
     );
   }
 
-  if (messages.length === 0) {
-    return (
-      <div className="rounded-xl border border-border bg-white py-12 text-center">
-        <MessageSquare
-          className="mx-auto h-8 w-8 text-body"
-          strokeWidth={1.5}
-        />
-        <p className="mt-3 text-[14px] font-medium text-heading">
-          No tradies available
-        </p>
-        <p className="mt-1 text-[12px] text-body">
-          Check back soon for businesses in your area.
-        </p>
-      </div>
-    );
+  const adminMessages = messages.filter((m) => m.isAdmin);
+  const businessMessages = messages.filter((m) => !m.isAdmin);
+
+  if (adminMessages.length === 0 && businessMessages.length === 0) {
+    return <EmptyBusinessChats />;
   }
 
   return (
     <div className="space-y-3">
-      {messages.map((message) => (
+      {adminMessages.map((message) => (
         <MessageCard
           key={message.chatId}
           message={message}
           onClick={() => onOpenChat(message.businessId)}
         />
       ))}
+      {businessMessages.length === 0 ? (
+        <EmptyBusinessChats />
+      ) : (
+        businessMessages.map((message) => (
+          <MessageCard
+            key={message.chatId}
+            message={message}
+            onClick={() => onOpenChat(message.businessId)}
+          />
+        ))
+      )}
     </div>
   );
 }

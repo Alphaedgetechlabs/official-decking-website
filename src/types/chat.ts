@@ -1,5 +1,13 @@
 export type MessageStatus = 'sent' | 'delivered' | 'read';
 export type SenderType = 'user' | 'business';
+export type ChatMediaType = 'image' | 'video' | 'document';
+
+export interface ChatMediaPayload {
+  mediaUrl: string;
+  mediaType: ChatMediaType;
+  thumbnailUrl?: string;
+  fileName?: string;
+}
 
 export interface RtdbChatMessage {
   id: string;
@@ -8,6 +16,17 @@ export interface RtdbChatMessage {
   text: string;
   timestamp: number;
   status: MessageStatus;
+  mediaUrl?: string;
+  mediaType?: ChatMediaType;
+  thumbnailUrl?: string;
+  fileName?: string;
+}
+
+export interface PendingMediaUpload {
+  id: string;
+  mediaType: ChatMediaType;
+  progress: number;
+  previewUrl?: string;
 }
 
 export interface UserPresence {

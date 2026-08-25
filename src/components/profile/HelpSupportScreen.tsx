@@ -93,7 +93,13 @@ function ArticleRow({
   );
 }
 
-export function HelpSupportScreen({ onBack }: { onBack: () => void }) {
+export function HelpSupportScreen({
+  onBack,
+  onOpenSupportChat,
+}: {
+  onBack: () => void;
+  onOpenSupportChat?: () => void;
+}) {
   const [search, setSearch] = useState('');
   const [showFaqs, setShowFaqs] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<ArticleItem | null>(
@@ -134,6 +140,7 @@ export function HelpSupportScreen({ onBack }: { onBack: () => void }) {
           <div className="mt-5 grid grid-cols-2 gap-3">
             <button
               type="button"
+              onClick={onOpenSupportChat}
               className="flex min-h-[120px] flex-col justify-between rounded-2xl bg-brand p-4 text-left shadow-[0_4px_14px_rgba(232,122,77,0.28)] transition-transform hover:scale-[1.01] active:scale-[0.99]"
             >
               <MessageCircle

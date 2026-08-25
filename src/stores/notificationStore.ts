@@ -1,12 +1,16 @@
 import { create } from 'zustand';
+import type { BusinessProfile } from '../services/businessService';
+import { markMessagesAsRead } from '../services/rtdb/chatService';
+import { subscribeToBusinessMessageNotifications } from '../services/rtdb/businessMessageNotificationListener';
 import {
-  createNotification,
+  createNotificationIfAbsent,
+  markAllNotificationsRead,
+  markNotificationRead,
   notificationFromJobResponse,
   subscribeToJobResponses,
+  subscribeToNotifications,
 } from '../services/rtdb/notificationService';
-import { markMessagesAsRead } from '../services/rtdb/chatService';
-import { subscribeToUserNotifications } from '../services/rtdb/userNotificationBuilder';
-import type { AppNotification } from '../types/notification';
+import type { AppNotification, JobResponsePayload } from '../types/notification';
 
 type Unsubscribe = () => void;
 
@@ -15,14 +19,13 @@ interface NotificationStoreState {
   notifications: AppNotification[];
   loading: boolean;
   unsubscribers: Unsubscribe[];
-  processedJobResponses: Set<string>;
 }
 
 interface NotificationStoreActions {
   init: (
     authUid: string,
     userDocId?: string | null,
-    businessIds?: string[],
+    businesses?: BusinessProfile[],
   ) => void;
   teardown: () => void;
   markRead: (notificationId: string) => Promise<void>;
@@ -37,7 +40,6 @@ export const useNotificationStore = create<
   notifications: [],
   loading: false,
   unsubscribers: [],
-  processedJobResponses: new Set(),
 
   getUnreadCount: () => get().notifications.filter((n) => !n.read).length,
 
@@ -49,11 +51,10 @@ export const useNotificationStore = create<
       notifications: [],
       loading: false,
       unsubscribers: [],
-      processedJobResponses: new Set(),
     });
   },
 
-  init: (authUid, userDocId = null, businessIds = []) => {
+  init: (authUid, userDocId = null, businesses = []) => {
     get().teardown();
 
     const docId = userDocId?.trim() || null;
@@ -61,29 +62,44 @@ export const useNotificationStore = create<
     set({
       userId: authUid,
       loading: true,
-      processedJobResponses: new Set(),
     });
 
     const unsubscribers: Unsubscribe[] = [];
 
+    // Single source of truth: RTDB notifications/{authUid}
     unsubscribers.push(
-      subscribeToUserNotifications(authUid, docId, businessIds, (notifications) => {
+      subscribeToNotifications(authUid, (notifications) => {
         set({ notifications, loading: false });
       }),
     );
 
-    unsubscribers.push(
-      subscribeToJobResponses(authUid, (payload, responseId) => {
-        const { processedJobResponses } = get();
-        if (processedJobResponses.has(responseId)) return;
+    // Job accept/decline → persistent notification (deduped by response id)
+    const onJobResponse = (
+      payload: JobResponsePayload,
+      responseId: string,
+    ) => {
+      void createNotificationIfAbsent(
+        authUid,
+        `jr_${responseId}`,
+        notificationFromJobResponse(payload),
+      ).catch((err) => {
+        console.error('Failed to create job-response notification:', err);
+      });
+    };
 
-        set({
-          processedJobResponses: new Set([...processedJobResponses, responseId]),
-        });
+    unsubscribers.push(subscribeToJobResponses(authUid, onJobResponse));
+    if (docId && docId !== authUid) {
+      unsubscribers.push(subscribeToJobResponses(docId, onJobResponse));
+    }
 
-        void createNotification(authUid, notificationFromJobResponse(payload));
-      }),
-    );
+    // New business messages → persistent notification (deduped by message id)
+    if (businesses.length > 0) {
+      unsubscribers.push(
+        subscribeToBusinessMessageNotifications(authUid, businesses, {
+          userDocId: docId,
+        }),
+      );
+    }
 
     set({ unsubscribers });
   },
@@ -106,6 +122,12 @@ export const useNotificationStore = create<
         n.id === notificationId ? { ...n, read: true } : n,
       ),
     }));
+
+    try {
+      await markNotificationRead(userId, notificationId);
+    } catch (err) {
+      console.error('Failed to persist notification read:', err);
+    }
   },
 
   markAllRead: async () => {
@@ -115,11 +137,19 @@ export const useNotificationStore = create<
     await Promise.all(
       notifications
         .filter((n) => n.type === 'message' && n.chatId)
-        .map((n) => markMessagesAsRead(n.chatId!, 'user').catch(() => undefined)),
+        .map((n) =>
+          markMessagesAsRead(n.chatId!, 'user').catch(() => undefined),
+        ),
     );
 
     set({
       notifications: notifications.map((n) => ({ ...n, read: true })),
     });
+
+    try {
+      await markAllNotificationsRead(userId);
+    } catch (err) {
+      console.error('Failed to persist mark-all-read:', err);
+    }
   },
 }));

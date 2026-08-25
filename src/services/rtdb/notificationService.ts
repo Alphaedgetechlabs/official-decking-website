@@ -74,6 +74,32 @@ export async function createNotification(
   return { id, ...payload };
 }
 
+/**
+ * Idempotent write — skips if `notificationId` already exists.
+ * Used so job-response / message listeners don't duplicate on refresh.
+ */
+export async function createNotificationIfAbsent(
+  userId: string,
+  notificationId: string,
+  input: CreateNotificationInput,
+): Promise<AppNotification | null> {
+  const path = NOTIFICATION_PATHS.item(userId, notificationId);
+  const existing = await get(ref(rtdb, path));
+  if (existing.exists()) return null;
+
+  const payload: RawNotification = {
+    ...input,
+    read: false,
+    timestamp: Date.now(),
+  };
+
+  await update(ref(rtdb), {
+    [path]: payload,
+  });
+
+  return { id: notificationId, ...payload };
+}
+
 export async function fetchNotifications(
   userId: string,
   limit = 50,

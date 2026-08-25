@@ -1,0 +1,100 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBusinessOwner(businessId) {
+      return isSignedIn() && request.auth.uid == businessId;
+    }
+
+    function isJobOwner() {
+      return isSignedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+
+    function isCreatingOwnJob() {
+      return isSignedIn()
+        && request.resource.data.uid == request.auth.uid;
+    }
+
+    // Customer accounts — React Web App (phone-based doc IDs)
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if request.resource.data.type == 'user';
+      allow update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    // Global jobs — customer web app lists by uid / userId
+    match /jobs/{jobId} {
+      // Authenticated list/get required so both uid and userId queries work.
+      allow read: if isSignedIn();
+      allow create: if isCreatingOwnJob();
+      allow update: if isJobOwner();
+      allow delete: if false;
+    }
+
+    // Trigger Email extension queue
+    match /mail/{mailId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if false;
+    }
+
+    // Twilio SMS queue (Cloud Function trigger)
+    match /messages/{messageId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if false;
+    }
+
+    // Business / tradie accounts — Flutter App (uid-based doc IDs)
+    match /businesses/{businessId} {
+      // Customers (web) need profile read for matching + dashboard.
+      // Writes stay owner-only.
+      allow read: if isSignedIn();
+      allow create: if isBusinessOwner(businessId)
+        && request.resource.data.uid == businessId
+        && request.resource.data.email is string
+        && request.resource.data.businessName is string;
+      allow update: if isBusinessOwner(businessId)
+        && resource.data.uid == businessId;
+      allow delete: if false;
+
+      // Web app routes new job posts here (snake_case paths).
+      match /incoming_jobs/{jobId} {
+        allow read: if isBusinessOwner(businessId);
+        allow create: if isSignedIn();
+        allow update, delete: if isBusinessOwner(businessId);
+      }
+
+      match /accepted_jobs/{jobId} {
+        allow read: if isBusinessOwner(businessId);
+        allow create: if isSignedIn();
+        allow update, delete: if isBusinessOwner(businessId);
+      }
+
+      // Flutter / auto-accept camelCase paths (legacy + current).
+      match /incomingJobs/{jobId} {
+        allow read: if isBusinessOwner(businessId);
+        allow create: if isSignedIn();
+        allow update, delete: if isBusinessOwner(businessId);
+      }
+
+      match /acceptedJobs/{jobId} {
+        allow read: if isBusinessOwner(businessId);
+        allow create: if isSignedIn();
+        allow update: if isSignedIn();
+        allow delete: if isBusinessOwner(businessId);
+      }
+    }
+
+    // Customer (job owner) may read accepted_jobs for their own jobs only.
+    // Required for collectionGroup('accepted_jobs') queries on Home.
+    match /{path=**}/accepted_jobs/{acceptedJobId} {
+      allow read: if isSignedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+  }
+}

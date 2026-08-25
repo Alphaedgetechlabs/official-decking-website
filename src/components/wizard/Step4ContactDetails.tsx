@@ -1,6 +1,6 @@
 import { AlertCircle, Mail, Phone, ShieldCheck, User } from 'lucide-react';
-import { useState } from 'react';
-import { PhoneAlreadyRegisteredError } from '../../errors/authErrors';
+import { useEffect, useState } from 'react';
+import { tradeLabel } from '../../config/brandDomain';
 import { useWizard } from '../../context/WizardContext';
 import {
   getAuthErrorMessage,
@@ -10,50 +10,86 @@ import { formatPhoneForAuth, isValidPhoneInput } from '../../utils/phone';
 import { NavButtons } from './NavButtons';
 import { ProgressHeader } from './ProgressHeader';
 import { StepShell } from './StepShell';
+import { VerifyMobileModal } from './VerifyMobileModal';
 
 interface Step4ContactDetailsProps {
   onSendOtp: (phoneE164: string) => Promise<void>;
+  onVerificationStart: (otp: string) => void;
+  onResendOtp: () => Promise<void>;
+  otpRetry?: { error: string } | null;
+  onOtpRetryHandled?: () => void;
 }
 
-export function Step4ContactDetails({ onSendOtp }: Step4ContactDetailsProps) {
-  const { formData, updateFormData, prevStep, nextStep } = useWizard();
-  const [loading, setLoading] = useState(false);
+export function Step4ContactDetails({
+  onSendOtp,
+  onVerificationStart,
+  onResendOtp,
+  otpRetry,
+  onOtpRetryHandled,
+}: Step4ContactDetailsProps) {
+  const { formData, updateFormData, prevStep } = useWizard();
+  const [otpModalOpen, setOtpModalOpen] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /** Raw typed phone for OTP modal UI only — auth still uses E.164. */
+  const [phoneDisplay, setPhoneDisplay] = useState('');
 
   const isValid =
     formData.fullName.trim().length > 0 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) &&
     isValidPhoneInput(formData.phone);
 
-  const handleContinue = async () => {
+  useEffect(() => {
+    if (!otpRetry) return;
+    setOtpError(otpRetry.error);
+    setOtpModalOpen(true);
+    onOtpRetryHandled?.();
+  }, [otpRetry, onOtpRetryHandled]);
+
+  const handleContinue = () => {
     if (!isValid) return;
 
-    setLoading(true);
     setSubmitError(null);
+    setOtpError(null);
+    setPhoneDisplay(formData.phone);
+    setOtpModalOpen(true);
 
-    try {
-      const phoneE164 = formatPhoneForAuth(formData.phone);
-      updateFormData({ phone: phoneE164 });
-      await onSendOtp(phoneE164);
-      nextStep();
-    } catch (error) {
-      if (error instanceof PhoneAlreadyRegisteredError) {
-        setSubmitError(
-          'This phone number is already registered. Please use a different number to continue.',
-        );
-      } else {
-        await resetRecaptchaVerifier();
-        setSubmitError(
-          getAuthErrorMessage(
-            error,
-            'Failed to send verification code. Please try again.',
-          ),
-        );
-      }
+    const phoneE164 = formatPhoneForAuth(formData.phone);
+    updateFormData({ phone: phoneE164 });
+
+    void onSendOtp(phoneE164).catch(async (error) => {
+      await resetRecaptchaVerifier();
+      setOtpModalOpen(false);
+      setSubmitError(
+        getAuthErrorMessage(
+          error,
+          'Failed to send verification code. Please try again.',
+        ),
+      );
       console.error('OTP send error:', error);
-    } finally {
-      setLoading(false);
+    });
+  };
+
+  const handleVerify = async (otp: string) => {
+    setOtpModalOpen(false);
+    setOtpError(null);
+    onVerificationStart(otp);
+  };
+
+  const handleResend = async () => {
+    try {
+      await onResendOtp();
+    } catch (err) {
+      console.error('Signup OTP resend error:', err);
+      setOtpError('Failed to resend OTP. Please try again.');
+      throw err;
     }
+  };
+
+  const handleChangeNumber = () => {
+    setOtpModalOpen(false);
+    setOtpError(null);
+    void resetRecaptchaVerifier();
   };
 
   const inputClass =
@@ -64,8 +100,9 @@ export function Step4ContactDetails({ onSendOtp }: Step4ContactDetailsProps) {
   }`;
 
   return (
-    <StepShell>
-      <ProgressHeader step={4} />
+    <>
+      <StepShell>
+        <ProgressHeader step={4} />
 
       <h1 className="text-2xl font-bold leading-tight text-heading sm:text-[1.65rem]">
         Almost done! Your quotes are just minutes away.
@@ -74,103 +111,117 @@ export function Step4ContactDetails({ onSendOtp }: Step4ContactDetailsProps) {
         Enter your details so your decking professionals can send accurate pricing.
       </p>
 
-      <div className="mt-6 space-y-4">
-        <div>
-          <label
-            htmlFor="fullName"
-            className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-heading"
-          >
-            <User className="h-4 w-4" strokeWidth={2} />
-            Full Name
-          </label>
-          <input
-            id="fullName"
-            type="text"
-            value={formData.fullName}
-            onChange={(e) => updateFormData({ fullName: e.target.value })}
-            placeholder="John Smith"
-            className={inputClass}
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="email"
-            className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-heading"
-          >
-            <Mail className="h-4 w-4" strokeWidth={2} />
-            Email Address
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={formData.email}
-            onChange={(e) => updateFormData({ email: e.target.value })}
-            placeholder="john@example.com"
-            className={inputClass}
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="phone"
-            className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-heading"
-          >
-            <Phone className="h-4 w-4" strokeWidth={2} />
-            Best Phone Number
-          </label>
-          <input
-            id="phone"
-            type="tel"
-            value={formData.phone}
-            onChange={(e) => {
-              updateFormData({ phone: e.target.value });
-              setSubmitError(null);
-            }}
-            placeholder="03XX XXXXXXX, +92 3XX…, 04XX XXX XXX, or +61…"
-            className={phoneInputClass}
-          />
-        </div>
-      </div>
-
-      {submitError && (
-        <div
-          role="alert"
-          className="mt-4 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4"
-        >
-          <AlertCircle
-            className="mt-0.5 h-5 w-5 shrink-0 text-red-500"
-            strokeWidth={2}
-          />
+        <div className="mt-6 space-y-4">
           <div>
-            <p className="text-sm font-semibold text-red-800">
-              Could not continue
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-red-600">
-              {submitError}
-            </p>
+            <label
+              htmlFor="fullName"
+              className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-heading"
+            >
+              <User className="h-4 w-4" strokeWidth={2} />
+              Full Name
+            </label>
+            <input
+              id="fullName"
+              type="text"
+              value={formData.fullName}
+              onChange={(e) => updateFormData({ fullName: e.target.value })}
+              placeholder="John Smith"
+              className={inputClass}
+              disabled={otpModalOpen}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="email"
+              className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-heading"
+            >
+              <Mail className="h-4 w-4" strokeWidth={2} />
+              Email Address
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => updateFormData({ email: e.target.value })}
+              placeholder="john@example.com"
+              className={inputClass}
+              disabled={otpModalOpen}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="phone"
+              className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-heading"
+            >
+              <Phone className="h-4 w-4" strokeWidth={2} />
+              Best Phone Number
+            </label>
+            <input
+              id="phone"
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => {
+                updateFormData({ phone: e.target.value });
+                setSubmitError(null);
+              }}
+              placeholder="04XX XXX XXX"
+              className={phoneInputClass}
+              disabled={otpModalOpen}
+            />
           </div>
         </div>
-      )}
 
-      <div className="mt-5 space-y-2">
-        <p className="flex items-center gap-2 text-xs text-body">
-          <ShieldCheck className="h-4 w-4 shrink-0 text-brand" strokeWidth={2} />
-          Zero spam — ever
-        </p>
-        <p className="flex items-center gap-2 text-xs text-body">
-          <ShieldCheck className="h-4 w-4 shrink-0 text-brand" strokeWidth={2} />
-          Your details are private and secure
-        </p>
-      </div>
+        {submitError && (
+          <div
+            role="alert"
+            className="mt-4 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4"
+          >
+            <AlertCircle
+              className="mt-0.5 h-5 w-5 shrink-0 text-red-500"
+              strokeWidth={2}
+            />
+            <div>
+              <p className="text-sm font-semibold text-red-800">
+                Could not continue
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-red-600">
+                {submitError}
+              </p>
+            </div>
+          </div>
+        )}
 
-      <NavButtons
-        onBack={prevStep}
-        continueLabel="Continue"
-        continueDisabled={!isValid}
-        loading={loading}
-        onContinue={handleContinue}
+        <div className="mt-5 space-y-2">
+          <p className="flex items-center gap-2 text-xs text-body">
+            <ShieldCheck className="h-4 w-4 shrink-0 text-brand" strokeWidth={2} />
+            Zero spam — ever
+          </p>
+          <p className="flex items-center gap-2 text-xs text-body">
+            <ShieldCheck className="h-4 w-4 shrink-0 text-brand" strokeWidth={2} />
+            Your details are private and secure
+          </p>
+        </div>
+
+        <NavButtons
+          onBack={prevStep}
+          continueLabel="Continue"
+          continueDisabled={!isValid || otpModalOpen}
+          loading={false}
+          onContinue={handleContinue}
+        />
+      </StepShell>
+
+      <VerifyMobileModal
+        open={otpModalOpen}
+        phoneDisplay={phoneDisplay}
+        onVerify={handleVerify}
+        onResend={handleResend}
+        onChangeNumber={handleChangeNumber}
+        error={otpError}
+        onClearError={() => setOtpError(null)}
       />
-    </StepShell>
+    </>
   );
 }

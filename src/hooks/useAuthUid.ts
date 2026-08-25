@@ -9,10 +9,16 @@ export function useAuthUid() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       setAuthUid(user?.uid ?? null);
       setAuthReady(true);
     });
+    // If auth persistence never emits, don't leave the app on an infinite loader.
+    const timeoutId = window.setTimeout(() => setAuthReady(true), 4000);
+    return () => {
+      unsubscribe();
+      window.clearTimeout(timeoutId);
+    };
   }, []);
 
   return { authUid, authReady };

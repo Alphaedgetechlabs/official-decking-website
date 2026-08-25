@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { TIMELINE_OPTIONS } from "@/data/formData";
+import { tradeLabel } from "@/config/brandDomain";
+import { sanitizeQueryValue } from "@/utils/sanitizeQueryValue";
 import { Clock, ArrowLeft, ArrowRight, Megaphone, Calendar, MessageSquare } from "lucide-react";
 
 interface TimelineStepProps {
@@ -14,7 +17,33 @@ const iconMap = {
 };
 
 const TimelineStep = ({ onNext, onBack }: TimelineStepProps) => {
-  const [selected, setSelected] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selected, setSelected] = useState<string | null>(() => {
+    const fromUrl = sanitizeQueryValue(searchParams.get("timeline") ?? "");
+    return fromUrl || null;
+  });
+
+  useEffect(() => {
+    const fromUrl = sanitizeQueryValue(searchParams.get("timeline") ?? "");
+    const next = fromUrl || null;
+    setSelected((prev) => (prev === next ? prev : next));
+  }, [searchParams]);
+
+  useEffect(() => {
+    const fromUrl = sanitizeQueryValue(searchParams.get("timeline") ?? "");
+    const value = selected ?? "";
+    if (value === fromUrl) return;
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set("timeline", value);
+        else next.delete("timeline");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selected, searchParams, setSearchParams]);
 
   return (
     <div className="flex items-center justify-center min-h-screen p-4 bg-muted">
@@ -38,7 +67,7 @@ const TimelineStep = ({ onNext, onBack }: TimelineStepProps) => {
             When do you want the job done?
           </h1>
           <p className="text-[17px] text-muted-foreground mb-8">
-            We'll prioritise decking contractors who can meet your timeline.
+            We'll prioritise {tradeLabel} contractors who can meet your timeline.
           </p>
 
           <div className="space-y-4">

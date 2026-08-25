@@ -65,19 +65,10 @@ export async function refreshDashboardBusinesses(
   user: UserDocument | null,
   jobs: UserJobListItem[] = [],
 ): Promise<BusinessProfile[]> {
-  const store = useDashboardStore.getState();
   const ids = resolveBusinessIds(user, jobs);
   const idsKey = ids.join(',');
 
-  if (
-    idsKey &&
-    store.businessesIdsKey === idsKey &&
-    store.businesses.length > 0 &&
-    filterRealBusinessIds(store.businesses.map((b) => b.id)).length > 0
-  ) {
-    return store.businesses;
-  }
-
+  // Always re-fetch so isAutoAcceptEnabled toggles show up without a hard reload.
   await waitForAuthIfNeeded();
 
   try {

@@ -19,5 +19,8 @@ const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+// Only bypass reCAPTCHA in local Vite — production must run real app verification
+// or phone OTP fails with auth/captcha-check-failed (MALFORMED).
+auth.settings.appVerificationDisabledForTesting = import.meta.env.DEV;
 export const storage = getStorage(app);
 export const rtdb = getDatabase(app);

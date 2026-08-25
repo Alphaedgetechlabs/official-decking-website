@@ -20,21 +20,20 @@ export function useUserJobs(
 
   const signupJob = useMemo(
     () => (user ? buildSignupJobFromUser(user) : null),
-    [user],
+    // Only rebuild when the fields that define a synthetic job change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional narrow deps
+    [user?.jobDescription, user?.location, user?.matchedBusinessIds, user?.phone],
   );
 
   useEffect(() => {
     if (!uid) {
       setFirestoreJobs([]);
-      setLoading(!cachedJobs.length);
+      setLoading(!useDashboardStore.getState().jobs.length);
       setError(null);
       return;
     }
 
-    const hasCache = cachedJobs.length > 0;
-    if (!hasCache) {
-      setLoading(true);
-    }
+    setLoading(useDashboardStore.getState().jobs.length === 0);
     setError(null);
 
     const unsubscribe = subscribeUserJobs(
@@ -42,7 +41,7 @@ export function useUserJobs(
       userId,
       (jobs) => {
         setFirestoreJobs(jobs);
-        useDashboardStore.getState().setJobs(mergeUserJobs(signupJob, jobs));
+        useDashboardStore.getState().setJobs(mergeUserJobs(null, jobs));
         setLoading(false);
         setError(null);
       },
@@ -53,10 +52,16 @@ export function useUserJobs(
     );
 
     return unsubscribe;
-  }, [uid, userId, cachedJobs.length, signupJob]);
+    // Do NOT depend on cachedJobs.length / signupJob — that re-subscribed on
+    // every store update and could leave overlapping listeners / inflated lists.
+  }, [uid, userId]);
 
   const jobs = useMemo(
-    () => mergeUserJobs(signupJob, firestoreJobs.length ? firestoreJobs : cachedJobs),
+    () =>
+      mergeUserJobs(
+        signupJob,
+        firestoreJobs.length > 0 ? firestoreJobs : cachedJobs,
+      ),
     [signupJob, firestoreJobs, cachedJobs],
   );
 

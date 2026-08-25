@@ -27,51 +27,53 @@ async function buildConversationFromChat(
   authUid: string,
   docId: string | null,
 ): Promise<InboxConversation | null> {
-  const belongsToUser =
-    chatBelongsToUserKeys(chatId, authUid, docId) ||
-    (meta ? chatMatchesUser(chatId, meta, authUid, docId) : false);
-
-  if (!belongsToUser) return null;
-
-  const businessId = resolveBusinessId(chatId, meta ?? {}, authUid, docId);
-  if (!businessId) return null;
-
-  let preview = meta?.lastMessage?.trim() ?? '';
-  let lastMessageAt = meta?.lastMessageAt ?? 0;
-  let lastSenderType = meta?.lastSenderType ?? 'user';
-
-  const latest = await fetchLatestMessagePreview(chatId);
-
-  if (!preview && latest) {
-    preview = latest.text;
-    lastMessageAt = latest.timestamp;
-    lastSenderType = latest.senderType;
-  } else if (latest && latest.timestamp > lastMessageAt) {
-    lastMessageAt = latest.timestamp;
-    if (!preview) {
-      preview = latest.text;
-      lastSenderType = latest.senderType;
-    }
-  }
-
-  if (!preview) return null;
-
-  let unread = false;
   try {
-    unread = await hasUnreadBusinessMessages(chatId);
-  } catch {
-    unread = false;
-  }
+    const belongsToUser =
+      chatBelongsToUserKeys(chatId, authUid, docId) ||
+      (meta ? chatMatchesUser(chatId, meta, authUid, docId) : false);
 
-  return {
-    chatId,
-    businessId,
-    businessName: meta?.businessName?.trim() || 'Trady',
-    preview,
-    lastMessageAt: lastMessageAt || latest?.timestamp || Date.now(),
-    lastSenderType,
-    unread,
-  };
+    if (!belongsToUser) return null;
+
+    const businessId = resolveBusinessId(chatId, meta ?? {}, authUid, docId);
+    if (!businessId) return null;
+
+    let preview = meta?.lastMessage?.trim() ?? '';
+    let lastMessageAt = meta?.lastMessageAt ?? 0;
+    let lastSenderType = meta?.lastSenderType ?? 'user';
+    let latest: Awaited<ReturnType<typeof fetchLatestMessagePreview>> = null;
+
+    // Prefer meta for the list; only hit messages/ when preview is missing.
+    if (!preview) {
+      latest = await fetchLatestMessagePreview(chatId);
+      if (latest) {
+        preview = latest.text;
+        lastMessageAt = latest.timestamp;
+        lastSenderType = latest.senderType;
+      }
+    }
+
+    if (!preview) return null;
+
+    let unread = false;
+    try {
+      unread = await hasUnreadBusinessMessages(chatId);
+    } catch {
+      unread = false;
+    }
+
+    return {
+      chatId,
+      businessId,
+      businessName: meta?.businessName?.trim() || 'Trady',
+      preview,
+      lastMessageAt: lastMessageAt || latest?.timestamp || Date.now(),
+      lastSenderType,
+      unread,
+    };
+  } catch {
+    // One denied/failed chat must not block the whole inbox rebuild.
+    return null;
+  }
 }
 
 async function buildInboxFromMetaCache(
@@ -117,23 +119,38 @@ export function subscribeToConversationInbox(
   const metaUnsubs = new Map<string, Unsubscribe>();
   const messageUnsubs = new Map<string, Unsubscribe>();
   const rootUnsubs: Unsubscribe[] = [];
-  let rebuildGeneration = 0;
   let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  let rebuildInFlight = false;
+  let rebuildQueued = false;
+
+  const runRebuild = () => {
+    if (rebuildInFlight) {
+      rebuildQueued = true;
+      return;
+    }
+
+    rebuildInFlight = true;
+    void buildInboxFromMetaCache(authUid, docId, metaCache, businessIds)
+      .then((conversations) => {
+        onUpdate(conversations);
+      })
+      .catch(() => {
+        onUpdate([]);
+      })
+      .finally(() => {
+        rebuildInFlight = false;
+        if (rebuildQueued) {
+          rebuildQueued = false;
+          runRebuild();
+        }
+      });
+  };
 
   const scheduleRebuild = () => {
     if (rebuildTimer) clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(() => {
       rebuildTimer = null;
-      const generation = ++rebuildGeneration;
-      void buildInboxFromMetaCache(
-        authUid,
-        docId,
-        metaCache,
-        businessIds,
-      ).then((conversations) => {
-        if (generation !== rebuildGeneration) return;
-        onUpdate(conversations);
-      });
+      runRebuild();
     }, 80);
   };
 
@@ -198,27 +215,6 @@ export function subscribeToConversationInbox(
   for (const chatId of buildCandidateChatIds(authUid, docId, businessIds)) {
     attachMetaListener(chatId);
   }
-
-  rootUnsubs.push(
-    onValue(ref(rtdb, 'chats'), (snapshot) => {
-      snapshot.forEach((chatSnap) => {
-        const chatId = chatSnap.key;
-        if (!chatId) return;
-
-        const chatData = chatSnap.val() as { meta?: ChatMeta } | null;
-        const meta = chatData?.meta ?? {};
-        if (
-          !chatBelongsToUserKeys(chatId, authUid, docId) &&
-          !chatMatchesUser(chatId, meta, authUid, docId)
-        ) {
-          return;
-        }
-
-        attachMetaListener(chatId);
-      });
-      scheduleRebuild();
-    }),
-  );
 
   scheduleRebuild();
 

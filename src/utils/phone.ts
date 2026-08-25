@@ -136,7 +136,7 @@ export function getPhoneInputError(phone: string): string {
   if (isValidPhoneInput(trimmed)) {
     return '';
   }
-  return 'Enter a valid mobile — can start with 0, +92, +61, 03…, or 04… (10 or 11 digits)';
+  return 'write a valid 10 digits number';
 }
 
 /** UI display: +923174433711 */

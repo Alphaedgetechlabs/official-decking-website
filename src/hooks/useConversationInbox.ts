@@ -11,7 +11,6 @@ import { subscribeToPresence } from '../services/rtdb/presenceService';
 import type { UserPresence } from '../types/chat';
 import {
   getBusinessAvatarStyle,
-  getBusinessDisplayMeta,
   getBusinessInitials,
 } from '../utils/businessDisplay';
 import { buildChatId } from '../utils/businessToMessage';
@@ -23,11 +22,12 @@ const offlinePresence: UserPresence = { online: false, last_active: null };
 function conversationToMessageItem(
   conversation: InboxConversation,
   presence: UserPresence,
+  rating: number,
+  logoUrl: string | null,
   now = Date.now(),
 ): MessageItem {
   const initials = getBusinessInitials(conversation.businessName);
   const { avatarBg, avatarText } = getBusinessAvatarStyle(conversation.businessName);
-  const { rating } = getBusinessDisplayMeta(conversation.businessName);
 
   const unread = conversation.unread;
 
@@ -49,6 +49,7 @@ function conversationToMessageItem(
     initials,
     avatarBg,
     avatarText,
+    logoUrl,
   };
 }
 
@@ -60,7 +61,6 @@ function businessWithoutConversation(
 ): MessageItem {
   const initials = getBusinessInitials(business.businessName);
   const { avatarBg, avatarText } = getBusinessAvatarStyle(business.businessName);
-  const { rating } = getBusinessDisplayMeta(business.businessName);
 
   const chatId =
     docId && docId !== authUid
@@ -72,7 +72,7 @@ function businessWithoutConversation(
     chatId,
     businessId: business.id,
     name: business.businessName,
-    rating,
+    rating: business.rating || 0,
     time: '',
     preview: 'No conversation',
     status: '',
@@ -82,6 +82,7 @@ function businessWithoutConversation(
     initials,
     avatarBg,
     avatarText,
+    logoUrl: business.logoUrl ?? null,
   };
 }
 
@@ -117,6 +118,8 @@ export function useConversationInbox(
     () => businesses.map((business) => business.id),
     [businesses],
   );
+  // Stabilize effect deps — new array identity alone must not resubscribe.
+  const businessIdsKey = businessIds.join(',');
 
   useEffect(() => {
     return onAuthStateChanged(auth, (user) => setAuthReady(!!user));
@@ -145,7 +148,9 @@ export function useConversationInbox(
     );
 
     return unsub;
-  }, [authReady, authUid, docId, businessIds]);
+    // businessIdsKey tracks id membership; businessIds read from latest render via key change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid array-identity thrash
+  }, [authReady, authUid, docId, businessIdsKey]);
 
   useEffect(() => {
     const trackedIds = new Set([
@@ -176,8 +181,8 @@ export function useConversationInbox(
     const inboxByBusinessId = new Map(
       rawInbox.map((conversation) => [conversation.businessId, conversation]),
     );
-    const listedBusinessIds = new Set(businesses.map((b) => b.id));
 
+    // Only accepted businesses — never pad with unmatched / random chats.
     const fromBusinesses = businesses.map((business) => {
       const conversation = inboxByBusinessId.get(business.id);
       const presence = presenceMap[business.id] ?? offlinePresence;
@@ -189,6 +194,8 @@ export function useConversationInbox(
             businessName: conversation.businessName || business.businessName,
           },
           presence,
+          business.rating || 0,
+          business.logoUrl ?? null,
           now,
         );
       }
@@ -196,17 +203,7 @@ export function useConversationInbox(
       return businessWithoutConversation(business, authUid, docId, presence);
     });
 
-    const extraConversations = rawInbox
-      .filter((conversation) => !listedBusinessIds.has(conversation.businessId))
-      .map((conversation) =>
-        conversationToMessageItem(
-          conversation,
-          presenceMap[conversation.businessId] ?? offlinePresence,
-          now,
-        ),
-      );
-
-    return sortMessageItems([...fromBusinesses, ...extraConversations]);
+    return sortMessageItems(fromBusinesses);
   }, [businesses, rawInbox, presenceMap, authUid, docId, now]);
 
   return {

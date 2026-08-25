@@ -22,7 +22,7 @@ export function Sidebar({ user, active, onChange }: SidebarProps) {
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[240px] flex-col bg-navy lg:flex xl:w-[260px]">
-      <div className="px-5 pt-6 pb-8">
+      <div className="pl-3 pr-5 pt-6 pb-8">
         <AppLogo variant="light" />
       </div>
 

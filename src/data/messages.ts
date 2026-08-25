@@ -14,5 +14,6 @@ export interface MessageItem {
   initials: string;
   avatarBg: string;
   avatarText: string;
+  logoUrl?: string | null;
   isAdmin?: boolean;
 }

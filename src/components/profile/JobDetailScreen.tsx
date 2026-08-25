@@ -9,11 +9,8 @@ import {
 } from 'lucide-react';
 import type { UserJobListItem } from '../../services/jobService';
 import type { BusinessProfile } from '../../services/businessService';
-import {
-  getBusinessAvatarStyle,
-  getBusinessDisplayMeta,
-  getBusinessInitials,
-} from '../../utils/businessDisplay';
+import { getBusinessDisplayMeta } from '../../utils/businessDisplay';
+import { BusinessAvatar } from '../ui/BusinessAvatar';
 
 interface JobDetailScreenProps {
   job: UserJobListItem;
@@ -30,19 +27,17 @@ function ContractorCard({
   business: BusinessProfile;
   onMessage?: (businessId: string) => void;
 }) {
-  const initials = getBusinessInitials(business.businessName);
-  const { avatarBg, avatarText } = getBusinessAvatarStyle(business.businessName);
   const { rating, reviews } = getBusinessDisplayMeta(business.businessName);
   const phone = business.phone?.trim();
 
   return (
     <div className="rounded-2xl border border-border bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
       <div className="flex items-start gap-3">
-        <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold ${avatarBg} ${avatarText}`}
-        >
-          {initials}
-        </div>
+        <BusinessAvatar
+          businessName={business.businessName}
+          logoUrl={business.logoUrl}
+          className="h-11 w-11 shrink-0 text-[12px] font-semibold"
+        />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -71,7 +66,9 @@ function ContractorCard({
         <a
           href={phone ? `tel:${phone}` : undefined}
           className={`flex items-center justify-center gap-2 rounded-xl border border-border bg-surface py-2.5 text-[13px] font-semibold text-heading transition-colors ${
-            phone ? 'hover:bg-gray-100' : 'pointer-events-none opacity-50'
+            phone
+              ? 'hover:border-brand hover:bg-brand hover:text-white'
+              : 'pointer-events-none opacity-50'
           }`}
         >
           <Phone className="h-4 w-4" strokeWidth={1.75} />

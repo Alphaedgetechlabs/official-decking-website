@@ -3,11 +3,13 @@ import { AddJobFab } from '../components/addJob/AddJobFab';
 import { AddJobSheet } from '../components/addJob/AddJobSheet';
 import { BottomNav } from '../components/home/BottomNav';
 import { HomeGreeting, HomeTopBar } from '../components/home/HomeHeader';
-import { HomeTradiesSection } from '../components/home/HomeTradiesSection';
+import { JobPostsList } from '../components/home/JobPostCard';
+import { JobPostsSection } from '../components/home/JobPostsSection';
 import { Sidebar } from '../components/home/Sidebar';
 import { DesktopTopBar } from '../components/layout/DesktopTopBar';
 import { BusinessMessagesList } from '../components/messages/BusinessMessagesList';
 import { ChatScreen } from '../components/messages/ChatScreen';
+import { AdminSupportChatScreen } from '../components/support/AdminSupportChatScreen';
 import {
   MessagesHeader,
   MessagesPageTitle,
@@ -23,9 +25,14 @@ import {
 } from '../components/profile/ProfileContent';
 import type { MessageItem } from '../data/messages';
 import { useConversationInbox } from '../hooks/useConversationInbox';
+import {
+  ADMIN_SUPPORT_CHAT_ID,
+  useAdminSupportInbox,
+} from '../hooks/useAdminSupportInbox';
 import { useAuthUid } from '../hooks/useAuthUid';
 import { useDashboardUser } from '../hooks/useUserData';
 import { useMatchedBusinesses } from '../hooks/useMatchedBusinesses';
+import { useUserAcceptedBusinesses } from '../hooks/useUserAcceptedBusinesses';
 import { useUserJobs } from '../hooks/useUserJobs';
 import { fetchBusinessById } from '../services/businessService';
 import { logoutUser } from '../services/authService';
@@ -33,15 +40,23 @@ import {
   initUserPresence,
   teardownUserPresence,
 } from '../services/rtdb/presenceService';
+import {
+  initAdminSupportUserPresence,
+  teardownAdminSupportUserPresence,
+} from '../services/rtdb/adminSupportPresenceService';
 import { getFirstName } from '../types/user';
 import { businessToMessageItem } from '../utils/businessToMessage';
 import type { NavTab } from '../types/nav';
 import type { ProfileScreen } from '../types/profile';
 import { useNotificationStore } from '../stores/notificationStore';
 import { clearSession, getStoredPhoneId } from '../utils/session';
+import { resolveAdminSupportUserId } from '../utils/adminSupportUserId';
 import { useAuthFlowStore } from '../stores/authFlowStore';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { prefetchDashboardForUser, ensureInstantBusinesses } from '../lib/dashboardBusinesses';
+
+/** Flip to true to re-enable the home-screen add-job FAB. */
+const ENABLE_ADD_JOB = false;
 
 interface MainAppProps {
   onLogout: () => void;
@@ -68,6 +83,7 @@ export function MainApp({ onLogout }: MainAppProps) {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [profileScreen, setProfileScreen] = useState<ProfileScreen>('main');
   const [addJobOpen, setAddJobOpen] = useState(false);
+  const [supportChatOpen, setSupportChatOpen] = useState(false);
   const [businessesRefreshKey, setBusinessesRefreshKey] = useState(0);
   const [resolvedContact, setResolvedContact] = useState<MessageItem | null>(
     null,
@@ -78,7 +94,7 @@ export function MainApp({ onLogout }: MainAppProps) {
   const displayUser = user ?? cachedUser;
 
   const userId = authUid ?? '';
-  const userDocId = displayUser?.phone ?? getStoredPhoneId();
+  const userDocId = resolveAdminSupportUserId(displayUser?.phone, getStoredPhoneId());
 
   const {
     jobs: userJobs,
@@ -86,12 +102,21 @@ export function MainApp({ onLogout }: MainAppProps) {
     error: userJobsError,
   } = useUserJobs(authUid, displayUser, userDocId ?? '');
 
+  // One card per posted job (tied to jobId) — not latest-per-category.
+  const homeJobs = userJobs;
+
   const businesses = useDashboardStore((s) => s.businesses);
   const {
     loading: businessesLoading,
     error: businessesError,
   } = useMatchedBusinesses(userJobs, displayUser, businessesRefreshKey);
+  // Matched list still feeds Home / add-job; messages use accepted_jobs only.
   const showBusinessesLoading = businessesLoading && businesses.length === 0;
+
+  const {
+    businesses: acceptedChatBusinesses,
+    loading: acceptedChatLoading,
+  } = useUserAcceptedBusinesses(authUid);
 
   const unreadCount = useNotificationStore(
     (s) => s.notifications.filter((n) => !n.read).length,
@@ -99,23 +124,35 @@ export function MainApp({ onLogout }: MainAppProps) {
   const initNotifications = useNotificationStore((s) => s.init);
   const teardownNotifications = useNotificationStore((s) => s.teardown);
 
-  const businessIds = useMemo(
-    () => businesses.map((business) => business.id),
-    [businesses],
+  const acceptedChatBusinessIdsKey = useMemo(
+    () => acceptedChatBusinesses.map((b) => b.id).join(','),
+    [acceptedChatBusinesses],
   );
 
   const {
     messages: inboxMessages,
     loading: inboxLoading,
     error: inboxError,
-  } = useConversationInbox(userId, userDocId, businesses);
+  } = useConversationInbox(userId, userDocId, acceptedChatBusinesses);
+
+  const { messageItem: supportMessageItem } = useAdminSupportInbox(userDocId);
+
+  const messagesWithSupport = useMemo(() => {
+    if (!supportMessageItem) return inboxMessages;
+
+    const withoutSupport = inboxMessages.filter(
+      (m) => m.businessId !== ADMIN_SUPPORT_CHAT_ID,
+    );
+
+    return [supportMessageItem, ...withoutSupport];
+  }, [inboxMessages, supportMessageItem]);
 
   const businessMessages = useMemo(
     () =>
-      businesses.map((business, index) =>
+      acceptedChatBusinesses.map((business, index) =>
         businessToMessageItem(business, userId, index),
       ),
-    [businesses, userId],
+    [acceptedChatBusinesses, userId],
   );
 
   const activeContact = useMemo(() => {
@@ -165,27 +202,48 @@ export function MainApp({ onLogout }: MainAppProps) {
   }, [authReady, userId]);
 
   useEffect(() => {
+    if (!authReady || !userDocId) return;
+    initAdminSupportUserPresence(userDocId);
+    return () => teardownAdminSupportUserPresence();
+  }, [authReady, userDocId]);
+
+  useEffect(() => {
     if (!authReady || !userId) return;
-    initNotifications(userId, userDocId, businessIds);
+    initNotifications(userId, userDocId, acceptedChatBusinesses);
     return () => teardownNotifications();
+    // acceptedChatBusinessIdsKey tracks membership; array read on key change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid array-identity thrash
   }, [
     authReady,
     userId,
     userDocId,
-    businessIds,
+    acceptedChatBusinessIdsKey,
     initNotifications,
     teardownNotifications,
   ]);
 
+  const clearActiveChat = () => {
+    setActiveChatId(null);
+    setResolvedContact(null);
+  };
+
   const openNotifications = () => {
     setActiveTab('profile');
     setProfileScreen('notifications');
-    setActiveChatId(null);
+    clearActiveChat();
   };
+
+  useEffect(() => {
+    if (activeTab !== 'messages') {
+      setActiveChatId(null);
+      setResolvedContact(null);
+    }
+  }, [activeTab]);
 
   const handleLogout = () => {
     teardownNotifications();
     teardownUserPresence();
+    teardownAdminSupportUserPresence();
     useAuthFlowStore.getState().clear();
     useDashboardStore.getState().clear();
     clearSession();
@@ -196,6 +254,8 @@ export function MainApp({ onLogout }: MainAppProps) {
   };
 
   const handleTabChange = (tab: NavTab) => {
+    clearActiveChat();
+    setSupportChatOpen(false);
     setActiveTab(tab);
     if (tab !== 'profile') {
       setProfileScreen('main');
@@ -203,9 +263,19 @@ export function MainApp({ onLogout }: MainAppProps) {
   };
 
   const openChat = (businessId: string) => {
+    if (businessId === ADMIN_SUPPORT_CHAT_ID) {
+      openSupportChat();
+      return;
+    }
     setActiveTab('messages');
     setProfileScreen('main');
     setActiveChatId(businessId);
+  };
+
+  const openSupportChat = () => {
+    setSupportChatOpen(true);
+    setActiveChatId(null);
+    setResolvedContact(null);
   };
 
   if ((!authReady && !cachedUser) || (loading && !displayUser)) {
@@ -225,7 +295,7 @@ export function MainApp({ onLogout }: MainAppProps) {
   const firstName = getFirstName(displayUser.fullName);
   const avatarUrl = displayUser.photoUrls?.[0];
   const isProfileSubScreen = activeTab === 'profile' && profileScreen !== 'main';
-  const showShell = !activeChatId && !isProfileSubScreen;
+  const showShell = !activeChatId && !supportChatOpen && !isProfileSubScreen;
 
   return (
     <div className="min-h-svh bg-surface">
@@ -250,12 +320,17 @@ export function MainApp({ onLogout }: MainAppProps) {
             <div className="mx-auto w-full max-w-[480px] flex-1 lg:max-w-4xl lg:px-8">
               <main className="px-5 pt-6 pb-24 lg:px-0 lg:pt-8 lg:pb-10">
                 <HomeGreeting firstName={firstName} />
-                <HomeTradiesSection
-                  businesses={businesses}
-                  loading={showBusinessesLoading}
-                  error={businessesError}
-                  onMessage={openChat}
-                />
+                <JobPostsSection>
+                  <JobPostsList
+                    jobs={homeJobs}
+                    loading={userJobsLoading}
+                    error={userJobsError}
+                    businesses={businesses}
+                    businessesLoading={showBusinessesLoading}
+                    businessesError={businessesError}
+                    onMessageContractor={openChat}
+                  />
+                </JobPostsSection>
               </main>
             </div>
           </>
@@ -268,9 +343,9 @@ export function MainApp({ onLogout }: MainAppProps) {
               <main className="px-5 pt-5 pb-24 lg:px-0 lg:pt-8 lg:pb-10">
                 <MessagesPageTitle />
                 <BusinessMessagesList
-                  messages={inboxMessages}
-                  loading={showBusinessesLoading || inboxLoading}
-                  error={businessesError ?? inboxError}
+                  messages={messagesWithSupport}
+                  loading={acceptedChatLoading || inboxLoading}
+                  error={inboxError}
                   onOpenChat={openChat}
                 />
               </main>
@@ -321,13 +396,22 @@ export function MainApp({ onLogout }: MainAppProps) {
           />
         )}
 
-        {activeTab === 'profile' && profileScreen === 'help' && (
-          <HelpSupportScreen onBack={() => setProfileScreen('main')} />
+        {activeTab === 'profile' && profileScreen === 'help' && !supportChatOpen && (
+          <HelpSupportScreen
+            onBack={() => setProfileScreen('main')}
+            onOpenSupportChat={openSupportChat}
+          />
         )}
       </div>
 
       {showShell && activeTab === 'home' && (
-        <AddJobFab onClick={() => setAddJobOpen(true)} />
+        <AddJobFab
+          disabled={!ENABLE_ADD_JOB}
+          onClick={() => {
+            if (!ENABLE_ADD_JOB) return;
+            setAddJobOpen(true);
+          }}
+        />
       )}
 
       {addJobOpen && userId && userDocId && (
@@ -355,7 +439,14 @@ export function MainApp({ onLogout }: MainAppProps) {
         <ChatScreen
           contact={activeContact}
           userId={userId}
-          onBack={() => setActiveChatId(null)}
+          onBack={clearActiveChat}
+        />
+      )}
+
+      {supportChatOpen && userDocId && (
+        <AdminSupportChatScreen
+          userDocId={userDocId}
+          onBack={() => setSupportChatOpen(false)}
         />
       )}
     </div>
